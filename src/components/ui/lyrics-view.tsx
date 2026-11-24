@@ -1,17 +1,19 @@
-import MaskedView from '@react-native-masked-view/masked-view';
-import { LinearGradient } from 'expo-linear-gradient';
-import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
-import { ScrollView, type LayoutChangeEvent } from 'react-native';
-import { Spinner, Text, YStack } from 'tamagui';
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
+import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { ScrollView, type LayoutChangeEvent } from "react-native";
+import { Spinner, Text, YStack } from "tamagui";
 
-import { findActiveLyricIndex } from '@/features/player/lyrics';
-import { usePlayerProgressSelector } from '@/features/player/store';
-import type { LyricLine, LyricsStatus } from '@/features/player/types';
-import { usePalette } from '@/hooks/use-palette';
+import { findActiveLyricIndex } from "@/features/player/lyrics";
+import { usePlayerProgressSelector } from "@/features/player/store";
+import type { LyricLine, LyricsStatus } from "@/features/player/types";
+import { usePalette } from "@/hooks/use-palette";
 
 type LyricsViewProps = {
   lines: LyricLine[];
   status: LyricsStatus;
+  fontSize?: number;
+  textAlign?: "center" | "left";
   onSeekLine?: (line: LyricLine) => void;
   onRetry?: () => void;
 };
@@ -22,8 +24,10 @@ type LyricRowProps = {
   line: LyricLine;
   index: number;
   active: boolean;
-  activeColor: ComponentProps<typeof Text>['color'];
-  inactiveColor: ComponentProps<typeof Text>['color'];
+  fontSize: number;
+  textAlign: "center" | "left";
+  activeColor: ComponentProps<typeof Text>["color"];
+  inactiveColor: ComponentProps<typeof Text>["color"];
   onLayoutLine: (index: number, offset: number) => void;
   onSeekLine?: (line: LyricLine) => void;
 };
@@ -32,6 +36,8 @@ const LyricRow = memo(function LyricRow({
   line,
   index,
   active,
+  fontSize,
+  textAlign,
   activeColor,
   inactiveColor,
   onLayoutLine,
@@ -39,24 +45,32 @@ const LyricRow = memo(function LyricRow({
 }: LyricRowProps) {
   return (
     <Text
+      width="100%"
       onLayout={(event) => onLayoutLine(index, event.nativeEvent.layout.y)}
       onPress={onSeekLine ? () => onSeekLine(line) : undefined}
       suppressHighlighting
-      textAlign="center"
+      textAlign={textAlign}
       paddingVertical={11}
       color={active ? activeColor : inactiveColor}
       opacity={active ? 1 : 0.58}
-      fontSize={16}
-      lineHeight={25}
-      fontWeight={active ? '700' : '500'}
-      transform={[{ scale: active ? 1.08 : 1 }]}
+      fontSize={fontSize}
+      lineHeight={Math.round(fontSize * 1.55)}
+      fontWeight={active ? "700" : "500"}
+      transform={[{ scale: active ? 1.06 : 1 }]}
       transition="quick">
       {line.text}
     </Text>
   );
 });
 
-export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewProps) {
+export function LyricsView({
+  lines,
+  status,
+  fontSize = 16,
+  textAlign = "center",
+  onSeekLine,
+  onRetry,
+}: LyricsViewProps) {
   const palette = usePalette();
   const scrollRef = useRef<ScrollView>(null);
   const lineOffsets = useRef<number[]>([]);
@@ -80,7 +94,7 @@ export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewPro
     }
 
     const offset = lineOffsets.current[activeIndex];
-    if (typeof offset !== 'number') {
+    if (typeof offset !== "number") {
       return;
     }
 
@@ -90,7 +104,7 @@ export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewPro
     });
   }, [activeIndex, viewportHeight]);
 
-  if (status === 'loading' || status === 'idle') {
+  if (status === "loading" || status === "idle") {
     return (
       <YStack flex={1} alignItems="center" justifyContent="center" gap={12}>
         <Spinner size="large" color={palette.accent} />
@@ -101,7 +115,7 @@ export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewPro
     );
   }
 
-  if (status === 'error') {
+  if (status === "error") {
     return (
       <YStack
         flex={1}
@@ -139,7 +153,7 @@ export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewPro
       androidRenderingMode="hardware"
       maskElement={
         <LinearGradient
-          colors={['transparent', 'black', 'black', 'transparent']}
+          colors={["transparent", "black", "black", "transparent"]}
           locations={[0, 0.14, 0.84, 1]}
           style={{ flex: 1 }}
         />
@@ -162,6 +176,8 @@ export function LyricsView({ lines, status, onSeekLine, onRetry }: LyricsViewPro
             line={line}
             index={index}
             active={index === activeIndex}
+            fontSize={fontSize}
+            textAlign={textAlign}
             activeColor={palette.accent}
             inactiveColor={palette.textSecondary}
             onLayoutLine={handleLayoutLine}

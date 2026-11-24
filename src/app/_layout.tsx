@@ -53,7 +53,7 @@ export default function RootLayout() {
           <Stack.Screen
             name="player"
             options={{
-              presentation: 'modal',
+              presentation: 'fullScreenModal',
               animation: 'slide_from_bottom',
               gestureEnabled: true,
               gestureDirection: 'vertical',

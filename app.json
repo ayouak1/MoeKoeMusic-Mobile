@@ -3,7 +3,7 @@
     "name": "MoeKoe",
     "slug": "moekoe",
     "version": "1.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "moekoe",
     "userInterfaceStyle": "automatic",
@@ -11,17 +11,12 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/b40e70cf-7d4b-4a09-8f1d-c17b730e6d96",
-      "requestHeaders": {
-        "expo-channel-name": "production"
-      },
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "enabled": false
     },
     "ios": {
       "bundleIdentifier": "cn.moekoe.music",
       "buildNumber": "1.1.0",
-      "supportsTablet": false,
+      "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"

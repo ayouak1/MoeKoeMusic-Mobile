@@ -5,12 +5,23 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "Build platform"
+        required: true
+        default: "ios"
+        type: choice
+        options:
+          - ios
+          - android
+          - all
 
 permissions:
   contents: write
 
 jobs:
   build-android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android'
     runs-on: ubuntu-latest
 
     steps:
@@ -88,6 +99,7 @@ jobs:
           path: dist/*
 
   build-ios:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'ios'
     runs-on: macos-latest
 
     steps:

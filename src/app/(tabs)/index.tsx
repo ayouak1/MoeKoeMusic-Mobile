@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { startTransition, useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
 
@@ -12,7 +12,7 @@ import { RankCard } from '@/components/ui/rank-card';
 import { SectionHeader } from '@/components/ui/section-header';
 import { SongListItem } from '@/components/ui/song-list-item';
 import { TrackActionsSheet } from '@/components/ui/track-actions-sheet';
-import { MaxContentWidth, WideBreakpoint } from '@/constants/theme';
+import { useResponsive } from '@/hooks/use-responsive';
 import { loadHomeData, type HomeData, type HomeSong } from '@/features/home/load-home-data';
 import { playerActions, usePlayer } from '@/features/player/store';
 import type { PlayerTrack } from '@/features/player/types';
@@ -119,7 +119,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const dockInset = useDockContentInset();
-  const { width } = useWindowDimensions();
+  const { contentWidth, contentMaxWidth, getGridColumns, isTablet } = useResponsive();
   const { track } = usePlayer();
   const requestIdRef = useRef(0);
   const [state, setState] = useState<ScreenState>({
@@ -130,12 +130,11 @@ export default function HomeScreen() {
   });
   const [actionTrack, setActionTrack] = useState<PlayerTrack | null>(null);
 
-  const contentWidth = Math.min(width, MaxContentWidth) - 32;
-  const playlistColumns = contentWidth >= WideBreakpoint ? 3 : 2;
+  const playlistColumns = getGridColumns(160, 5);
   const playlistCardWidth = Math.floor(
     (contentWidth - 14 * (playlistColumns - 1)) / playlistColumns
   );
-  const bannerWidth = Math.min(contentWidth, 560);
+  const bannerWidth = Math.min(contentWidth, isTablet ? 640 : 560);
   const bannerHeight = Math.round(bannerWidth * 0.44);
   const songCardWidth = Math.min(156, Math.max(136, Math.floor(contentWidth * 0.42)));
 
@@ -252,6 +251,7 @@ export default function HomeScreen() {
         contentContainerStyle={[
           styles.content,
           {
+            maxWidth: contentMaxWidth,
             paddingTop: insets.top + 14,
             paddingBottom: dockInset,
           },
@@ -459,7 +459,6 @@ const styles = StyleSheet.create({
   content: {
     alignSelf: 'center',
     width: '100%',
-    maxWidth: MaxContentWidth,
     paddingHorizontal: 16,
     gap: 22,
   },

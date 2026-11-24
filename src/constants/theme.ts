@@ -79,5 +79,5 @@ export const Radius = {
   pill: 999,
 } as const;
 
-export const MaxContentWidth = 800;
+export const MaxContentWidth = 1040;
 export const WideBreakpoint = 680;

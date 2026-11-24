@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { startTransition, useEffect, useRef, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { FlatList, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
 
@@ -11,6 +11,7 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { SongListItem } from '@/components/ui/song-list-item';
 import { TrackActionsSheet } from '@/components/ui/track-actions-sheet';
 import { MaxContentWidth, type AppPalette } from '@/constants/theme';
+import { useResponsive } from '@/hooks/use-responsive';
 import {
   fetchCategoryPlaylists,
   fetchNewAlbums,
@@ -47,10 +48,10 @@ const ALBUM_REGIONS: { value: AlbumRegion | 'all'; label: string }[] = [
 ];
 
 function useGridMetrics() {
-  const { width } = useWindowDimensions();
-  const contentWidth = Math.min(width, MaxContentWidth) - 32;
-  const cardWidth = Math.floor((contentWidth - 24) / 3);
-  return { cardWidth };
+  const { contentWidth, isTablet, getGridColumns } = useResponsive();
+  const columns = isTablet ? getGridColumns(160, 6) : 3;
+  const cardWidth = Math.floor((contentWidth - 12 * (columns - 1)) / columns);
+  return { cardWidth, columns };
 }
 
 function PaneStatus({
@@ -142,7 +143,7 @@ function CategoryChip({
 function PlaylistPane({ bottomInset }: { bottomInset: number }) {
   const palette = usePalette();
   const router = useRouter();
-  const { cardWidth } = useGridMetrics();
+  const { cardWidth, columns } = useGridMetrics();
   const requestIdRef = useRef(0);
 
   const [categories, setCategories] = useState<DiscoverCategory[]>([]);
@@ -220,7 +221,8 @@ function PlaylistPane({ bottomInset }: { bottomInset: number }) {
     <FlatList
       data={loading || error ? [] : playlists}
       keyExtractor={(item) => item.id}
-      numColumns={3}
+      key={`grid-${columns}`}
+      numColumns={columns}
       showsVerticalScrollIndicator={false}
       onEndReachedThreshold={0.5}
       onEndReached={() => {
@@ -400,7 +402,7 @@ function RankingPane({ bottomInset }: { bottomInset: number }) {
 function AlbumPane({ bottomInset }: { bottomInset: number }) {
   const palette = usePalette();
   const router = useRouter();
-  const { cardWidth } = useGridMetrics();
+  const { cardWidth, columns } = useGridMetrics();
   const [albums, setAlbums] = useState<DiscoverAlbum[]>([]);
   const [region, setRegion] = useState<AlbumRegion | 'all'>('all');
   const [loading, setLoading] = useState(true);
@@ -434,7 +436,8 @@ function AlbumPane({ bottomInset }: { bottomInset: number }) {
     <FlatList
       data={loading || error ? [] : visible}
       keyExtractor={(item) => `${item.region}-${item.id}`}
-      numColumns={3}
+      key={`grid-${columns}`}
+      numColumns={columns}
       showsVerticalScrollIndicator={false}
       columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
       contentContainerStyle={{

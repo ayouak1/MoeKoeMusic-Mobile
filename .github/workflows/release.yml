@@ -120,6 +120,10 @@ jobs:
           npm --prefix api install
           npm run generate:mobile-api
 
+      - name: Patch expo-modules-jsi for Swift 6.2 C++ interop
+        run: |
+          python3 -c 'import os; p="node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift"; os.path.exists(p) and open(p,"w").write(open(p).read().replace("Swift.abs(milliseconds)","abs(milliseconds)").replace("abs(milliseconds)","Swift.abs(milliseconds)"))'
+
       - name: Prebuild iOS project
         run: npx expo prebuild --platform ios --no-install
 

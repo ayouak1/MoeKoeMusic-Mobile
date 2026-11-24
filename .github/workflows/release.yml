@@ -100,7 +100,7 @@ jobs:
 
   build-ios:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'ios'
-    runs-on: macos-latest
+    runs-on: macos-15-intel
 
     steps:
       - name: Checkout

@@ -8,6 +8,7 @@ export type StoredAppearance = {
   searchHistoryEnabled?: unknown;
   preferredQuality?: unknown;
   lyricSize?: unknown;
+  mixWithOthers?: unknown;
 };
 
 export async function readStoredAppearance(): Promise<StoredAppearance | null> {
@@ -27,6 +28,7 @@ export async function writeStoredAppearance(value: {
   searchHistoryEnabled: boolean;
   preferredQuality: string;
   lyricSize: string;
+  mixWithOthers: boolean;
 }): Promise<void> {
   try {
     await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(value));

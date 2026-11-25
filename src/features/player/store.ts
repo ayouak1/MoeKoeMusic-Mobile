@@ -139,7 +139,7 @@ function ensureAudioPlayer(): AudioPlayer {
   void setAudioModeAsync({
     playsInSilentMode: true,
     shouldPlayInBackground: true,
-    interruptionMode: 'mixWithOthers',
+    interruptionMode: getSettingsSnapshot().mixWithOthers ? 'mixWithOthers' : 'doNotMix',
   });
 
   return audioPlayer;

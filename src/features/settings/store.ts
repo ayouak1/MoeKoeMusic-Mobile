@@ -1,3 +1,4 @@
+import { setAudioModeAsync } from "expo-audio";
 import { useSyncExternalStore } from "react";
 
 import { DEFAULT_ACCENT_ID, isAccentPresetId, type AccentPresetId } from "@/constants/accents";
@@ -15,6 +16,7 @@ export type SettingsState = {
   searchHistoryEnabled: boolean;
   preferredQuality: AudioQuality;
   lyricSize: LyricSizePreset;
+  mixWithOthers: boolean;
 };
 
 const INITIAL_SETTINGS_STATE: SettingsState = {
@@ -24,6 +26,7 @@ const INITIAL_SETTINGS_STATE: SettingsState = {
   searchHistoryEnabled: true,
   preferredQuality: "320",
   lyricSize: "md",
+  mixWithOthers: true,
 };
 
 function createStore<T extends object>(initial: T) {
@@ -91,6 +94,7 @@ export function hydrateSettings(): Promise<void> {
         preferredQuality:
           stored && isAudioQuality(stored.preferredQuality) ? stored.preferredQuality : "320",
         lyricSize: stored && isLyricSizePreset(stored.lyricSize) ? stored.lyricSize : "md",
+        mixWithOthers: stored && typeof stored.mixWithOthers === "boolean" ? stored.mixWithOthers : true,
         hydrated: true,
       });
     })().catch(() => {
@@ -101,7 +105,7 @@ export function hydrateSettings(): Promise<void> {
 }
 
 function persist() {
-  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize } =
+  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize, mixWithOthers } =
     settingsStore.getState();
   void writeStoredAppearance({
     themeMode,
@@ -109,6 +113,7 @@ function persist() {
     searchHistoryEnabled,
     preferredQuality,
     lyricSize,
+    mixWithOthers,
   });
 }
 
@@ -136,6 +141,15 @@ export const settingsActions = {
   setLyricSize(lyricSize: LyricSizePreset) {
     settingsStore.setState({ lyricSize });
     persist();
+  },
+  setMixWithOthers(mixWithOthers: boolean) {
+    settingsStore.setState({ mixWithOthers });
+    persist();
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: mixWithOthers ? "mixWithOthers" : "doNotMix",
+    });
   },
 };
 

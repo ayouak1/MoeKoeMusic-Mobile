@@ -150,7 +150,7 @@ export default function SettingsScreen() {
   const scheme = useEffectiveScheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize } = useSettings();
+  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize, mixWithOthers } = useSettings();
   const offlineCache = useOfflineCache();
   const cacheMb = (offlineCache.entries.reduce((sum, item) => sum + item.sizeBytes, 0) / (1024 * 1024)).toFixed(1);
   const searchHistory = useSearchHistory();
@@ -281,6 +281,23 @@ export default function SettingsScreen() {
                   onChange={settingsActions.setLyricSize}
                 />
               </YStack>
+              <View height={StyleSheet.hairlineWidth} backgroundColor={palette.border} />
+              <XStack alignItems="center" justifyContent="space-between" gap={12}>
+                <YStack flex={1} gap={2}>
+                  <Text color={palette.text} fontSize={14.5} fontWeight="500">
+                    允许与其他应用同时播放
+                  </Text>
+                  <Text color={palette.textTertiary} fontSize={12}>
+                    关闭后将独占音频焦点，其他应用播放时自动暂停
+                  </Text>
+                </YStack>
+                <Switch
+                  value={mixWithOthers}
+                  onValueChange={settingsActions.setMixWithOthers}
+                  trackColor={{ false: palette.cardAlt, true: palette.accent }}
+                  thumbColor="#FFFFFF"
+                />
+              </XStack>
             </YStack>
           </YStack>
 

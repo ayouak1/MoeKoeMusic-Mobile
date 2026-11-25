@@ -29,6 +29,7 @@ import { libraryActions, useIsLiked } from "@/features/library/store";
 import { offlineCacheActions, useOfflineCache } from "@/features/player/cache-store";
 import { playerActions, usePlayer, usePlayerProgress } from "@/features/player/store";
 import type { PlayMode } from "@/features/player/types";
+import { searchArtists } from "@/features/search/search-api";
 import { useSettings, type AudioQuality } from "@/features/settings/store";
 import { usePalette } from "@/hooks/use-palette";
 import { formatClock, sizedImage } from "@/lib/format";
@@ -175,6 +176,7 @@ export default function PlayerScreen() {
   const [rightTab, setRightTab] = useState<RightPaneTab>("lyrics");
   const [showTranslation, setShowTranslation] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [artistBusy, setArtistBusy] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
@@ -236,6 +238,41 @@ export default function PlayerScreen() {
       setContainerSize((prev) =>
         prev.width === width && prev.height === height ? prev : { width, height }
       );
+    }
+  }
+
+  async function handleOpenArtist() {
+    const rawArtist = track?.artist?.trim();
+    if (!rawArtist || rawArtist === "未知歌手" || artistBusy) {
+      return;
+    }
+
+    const primaryArtist = rawArtist.split(/[、,/&]/)[0]?.trim() || rawArtist;
+    setArtistBusy(true);
+    try {
+      const res = await searchArtists(primaryArtist, 1);
+      const matched =
+        res.items.find((item) => item.name.toLowerCase() === primaryArtist.toLowerCase()) ??
+        res.items[0];
+      if (!matched) {
+        showToast("未找到该歌手主页");
+        return;
+      }
+      router.dismiss();
+      setTimeout(() => {
+        router.push({
+          pathname: "/artist/[id]",
+          params: {
+            id: matched.id,
+            name: matched.name,
+            avatar: matched.avatarUrl ?? "",
+          },
+        });
+      }, 120);
+    } catch {
+      showToast("歌手信息加载失败");
+    } finally {
+      setArtistBusy(false);
     }
   }
 
@@ -315,9 +352,24 @@ export default function PlayerScreen() {
           <Text color="#FFFFFF" fontSize={isSplitLayout ? 21 : 20} fontWeight="800" numberOfLines={1}>
             {track.title}
           </Text>
-          <Text color="rgba(255, 255, 255, 0.68)" fontSize={15} fontWeight="500" numberOfLines={1}>
-            {track.artist || "未知歌手"}
-          </Text>
+          <XStack
+            alignSelf="flex-start"
+            alignItems="center"
+            gap={3}
+            opacity={artistBusy ? 0.5 : 1}
+            pressStyle={track.artist && track.artist !== "未知歌手" ? { opacity: 0.6 } : undefined}
+            onPress={
+              track.artist && track.artist !== "未知歌手"
+                ? () => void handleOpenArtist()
+                : undefined
+            }>
+            <Text color="rgba(255, 255, 255, 0.72)" fontSize={15} fontWeight="500" numberOfLines={1}>
+              {track.artist || "未知歌手"}
+            </Text>
+            {track.artist && track.artist !== "未知歌手" ? (
+              <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.5)" />
+            ) : null}
+          </XStack>
         </YStack>
         <XStack alignItems="center" gap={8}>
           <XStack

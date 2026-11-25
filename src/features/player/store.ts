@@ -9,6 +9,7 @@ import {
 import { useSyncExternalStore } from 'react';
 
 import { getSettingsSnapshot, type AudioQuality } from '@/features/settings/store';
+import { formatApiError } from '@/lib/api-parse';
 import { sizedImage } from '@/lib/format';
 
 import { offlineCacheActions } from './cache-store';
@@ -285,7 +286,7 @@ async function loadTrackAt(index: number, options?: { autoplay?: boolean }) {
       playing: false,
       buffering: false,
       lyricsStatus: 'empty',
-      error: error instanceof Error ? error.message : '播放失败，请稍后重试',
+      error: formatApiError(error) || '播放失败，请稍后重试',
     });
 
     const { queue: currentQueue } = playerStore.getState();

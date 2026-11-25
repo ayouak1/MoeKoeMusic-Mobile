@@ -62,35 +62,48 @@ export async function resolveSongSource(
 
   const attempts = QUALITY_FALLBACKS[preferredQuality] ?? ["320", "128"];
   let lastStatus = 0;
+  let lastError: unknown = null;
 
   for (const quality of attempts) {
-    const response = await mobileApi.song_url({
-      hash: track.hash,
-      album_id: track.albumId ?? 0,
-      album_audio_id: track.albumAudioId ?? 0,
-      free_part: 1,
-      quality,
-    });
+    try {
+      const response = await mobileApi.song_url({
+        hash: track.hash,
+        album_id: track.albumId ?? 0,
+        album_audio_id: track.albumAudioId ?? 0,
+        free_part: 1,
+        ...(quality === "128" ? {} : { quality }),
+      });
 
-    const body = toRecord(response.body);
-    lastStatus = Number(body.status ?? 0);
-    const urls = [
-      ...collectUrls(body.url),
-      ...collectUrls(body.backupUrl),
-      ...collectUrls(body.backup_url),
-    ];
+      const body = toRecord(response.body);
+      lastStatus = Number(body.status ?? 0);
+      const urls = [
+        ...collectUrls(body.url),
+        ...collectUrls(body.backupUrl),
+        ...collectUrls(body.backup_url),
+      ];
 
-    if (urls.length) {
-      return {
-        uri: urls[0],
-        durationMs: normalizeDurationMs(body.timeLength) || track.durationMs || 0,
-        quality,
-      };
+      if (urls.length) {
+        return {
+          uri: urls[0],
+          durationMs: normalizeDurationMs(body.timeLength) || track.durationMs || 0,
+          quality,
+        };
+      }
+    } catch (error) {
+      lastError = error;
     }
   }
 
   if (lastStatus === 3) {
     throw new PlaybackUnavailableError("这首歌暂无版权，无法播放");
+  }
+
+  if (lastStatus > 0) {
+    throw new PlaybackUnavailableError("这首歌需要 VIP，暂时无法播放");
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 
   throw new PlaybackUnavailableError("这首歌需要 VIP，暂时无法播放");

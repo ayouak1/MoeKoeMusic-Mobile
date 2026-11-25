@@ -623,6 +623,37 @@ export const playerActions = {
     return true;
   },
 
+  playNext(track: PlayerTrack) {
+    const { queue, index, track: currentTrack } = playerStore.getState();
+    if (!currentTrack || !queue.length || index < 0) {
+      void playerActions.playTracks([track], 0);
+      return;
+    }
+    if (currentTrack.hash === track.hash) {
+      return;
+    }
+
+    let nextIndex = index;
+    const filtered: PlayerTrack[] = [];
+    queue.forEach((item, idx) => {
+      if (item.hash === track.hash) {
+        if (idx < index) {
+          nextIndex -= 1;
+        }
+        return;
+      }
+      filtered.push(item);
+    });
+
+    const insertPos = Math.min(filtered.length, Math.max(0, nextIndex) + 1);
+    const nextQueue = [
+      ...filtered.slice(0, insertPos),
+      track,
+      ...filtered.slice(insertPos),
+    ];
+    playerStore.setState({ queue: nextQueue, index: nextIndex });
+  },
+
   clearQueue() {
     loadSequence += 1;
     queueGeneration += 1;

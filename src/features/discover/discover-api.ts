@@ -171,7 +171,7 @@ function normalizeDiscoverSong(record: Record<string, unknown>): PlayerTrack | n
       240
     ),
     albumId: pickStringLike(record.album_id) || undefined,
-    albumAudioId: pickStringLike(record.album_audio_id, record.audio_id, record.mixsongid) || undefined,
+    albumAudioId: pickStringLike(record.album_audio_id, record.mixsongid) || undefined,
     durationMs: normalizeDurationMs(
       record.duration ?? deprecated.duration ?? record.timelength ?? record.timelen
     ),
@@ -295,7 +295,7 @@ export async function fetchAlbumSongs(albumId: string, page: number): Promise<Al
         album: pickText(albumInfo.album_name) || undefined,
         coverUrl: sizedImage(pickText(transParam.union_cover, albumInfo.sizable_cover), 240),
         albumId: pickStringLike(albumInfo.album_id) || undefined,
-        albumAudioId: pickStringLike(base.album_audio_id, base.audio_id) || undefined,
+        albumAudioId: pickStringLike(base.album_audio_id, base.mixsongid) || undefined,
         durationMs: normalizeDurationMs(audioInfo.duration),
         vip: pickNumber(copyright.privilege) >= 10 || undefined,
         quality: pickText(audioInfo.hash_flac)

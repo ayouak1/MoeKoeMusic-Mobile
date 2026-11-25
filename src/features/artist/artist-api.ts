@@ -76,7 +76,7 @@ export async function fetchArtistSongs(
         album: pickText(item.album_name) || undefined,
         coverUrl: sizedImage(pickText(transParam.union_cover, item.cover), 240),
         albumId: pickStringLike(item.album_id) || undefined,
-        albumAudioId: pickStringLike(item.album_audio_id, item.audio_id, item.mixsongid) || undefined,
+        albumAudioId: pickStringLike(item.album_audio_id, item.mixsongid) || undefined,
         durationMs: normalizeDurationMs(item.timelength ?? item.duration),
         vip: pickNumber(item.privilege) >= 10 || undefined,
         quality: pickText(item.hash_flac) ? 'sq' : pickText(item.hash_320) ? 'hq' : undefined,

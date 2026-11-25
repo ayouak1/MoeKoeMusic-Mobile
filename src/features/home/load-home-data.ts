@@ -104,7 +104,7 @@ function normalizeSong(record: Record<string, unknown>): HomeSong | null {
       240
     ),
     albumId: pickStringLike(record.album_id) || undefined,
-    albumAudioId: pickStringLike(record.album_audio_id, record.audio_id) || undefined,
+    albumAudioId: pickStringLike(record.album_audio_id, record.mixsongid) || undefined,
     durationMs: normalizeDurationMs(record.time_length ?? record.timelength ?? record.timelen),
     vip: pickNumber(record.privilege) >= 10 || undefined,
     quality: detectAudioQuality(record),

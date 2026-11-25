@@ -8,6 +8,7 @@ import { Artwork } from '@/components/ui/artwork';
 import { showToast } from '@/components/ui/toast';
 import { isLoggedIn } from '@/features/account/user-api';
 import { libraryActions, useIsLiked, useLibrary, type LibraryPlaylist } from '@/features/library/store';
+import { playerActions } from '@/features/player/store';
 import type { PlayerTrack } from '@/features/player/types';
 import { usePalette } from '@/hooks/use-palette';
 import { shareTrack } from '@/lib/share';
@@ -276,6 +277,12 @@ export function TrackActionsSheet({
     });
   }
 
+  function handlePlayNext(current: PlayerTrack) {
+    playerActions.playNext(current);
+    showToast("已添加到下一首播放");
+    onOpenChange(false);
+  }
+
   function handleShare(current: PlayerTrack) {
     onOpenChange(false);
     void shareTrack(current);
@@ -344,6 +351,11 @@ export function TrackActionsSheet({
 
               {view === 'actions' ? (
                 <YStack paddingTop={6}>
+                  <ActionRow
+                    icon={<MaterialCommunityIcons name="playlist-play" size={22} color={palette.text} />}
+                    label="下一首播放"
+                    onPress={() => handlePlayNext(track)}
+                  />
                   <ActionRow
                     icon={
                       <Ionicons

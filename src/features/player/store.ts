@@ -8,7 +8,10 @@ import {
 } from 'expo-audio';
 import { useSyncExternalStore } from 'react';
 
+import { getSettingsSnapshot, type AudioQuality } from '@/features/settings/store';
 import { sizedImage } from '@/lib/format';
+
+import { offlineCacheActions } from './cache-store';
 
 import { playHistoryActions } from './history-store';
 import { loadLyricLines } from './lyrics';
@@ -26,6 +29,12 @@ export type PlayerState = {
   error: string;
   lyrics: LyricLine[];
   lyricsStatus: LyricsStatus;
+  activeQuality: AudioQuality;
+  fromCache: boolean;
+  playbackRate: number;
+  sleepTimerEndAt: number | null;
+  sleepMinutesLeft: number | null;
+  sleepAfterCurrentTrack: boolean;
 };
 
 export type ProgressState = {
@@ -44,6 +53,12 @@ const INITIAL_PLAYER_STATE: PlayerState = {
   error: '',
   lyrics: [],
   lyricsStatus: 'idle',
+  activeQuality: '320',
+  fromCache: false,
+  playbackRate: 1,
+  sleepTimerEndAt: null,
+  sleepMinutesLeft: null,
+  sleepAfterCurrentTrack: false,
 };
 
 const INITIAL_PROGRESS_STATE: ProgressState = {
@@ -94,6 +109,8 @@ let failStreak = 0;
 let advanceTimer: ReturnType<typeof setTimeout> | null = null;
 // 每次“建立新队列”都会自增；后台补齐歌单剩余曲目时靠它判断队列是否已被替换。
 let queueGeneration = 0;
+let sleepTimeout: ReturnType<typeof setTimeout> | null = null;
+let sleepTickInterval: ReturnType<typeof setInterval> | null = null;
 
 // expo-audio 单 player 的锁屏/通知栏没有上一首/下一首命令(原生侧明确移除),
 // 只有 播放暂停+进度条+±10 秒;切歌按钮需迁移原生队列(AudioPlaylist),暂不做。
@@ -147,7 +164,16 @@ function handlePlaybackStatus(status: AudioStatus) {
 }
 
 function handleTrackFinished() {
-  const { mode, queue } = playerStore.getState();
+  const { mode, queue, sleepAfterCurrentTrack } = playerStore.getState();
+
+  if (sleepAfterCurrentTrack) {
+    const player = ensureAudioPlayer();
+    player.pause();
+    void player.seekTo(0);
+    progressStore.setState({ positionMs: 0 });
+    playerStore.setState({ sleepAfterCurrentTrack: false });
+    return;
+  }
 
   if (mode === 'none') {
     const player = ensureAudioPlayer();
@@ -208,13 +234,18 @@ async function loadTrackAt(index: number, options?: { autoplay?: boolean }) {
   progressStore.setState({ positionMs: 0, durationMs: track.durationMs ?? 0 });
 
   try {
-    const source = await resolveSongSource(track);
+    const preferredQuality = getSettingsSnapshot().preferredQuality;
+    const source = await resolveSongSource(track, preferredQuality);
     if (sequence !== loadSequence) {
       return;
     }
 
     const player = ensureAudioPlayer();
     player.replace({ uri: source.uri });
+    const currentRate = playerStore.getState().playbackRate;
+    if (currentRate !== 1) {
+      player.setPlaybackRate(currentRate);
+    }
     // 每次换曲重新激活即可同步刷新锁屏元数据;Android 侧同时启动前台服务,
     // 保证息屏后台连续播放不受系统 3 分钟限制。
     player.setActiveForLockScreen(true, lockScreenMetadataFor(track), LOCK_SCREEN_OPTIONS);
@@ -224,7 +255,11 @@ async function loadTrackAt(index: number, options?: { autoplay?: boolean }) {
 
     failStreak = 0;
     playHistoryActions.record(track);
-    playerStore.setState({ loading: false });
+    playerStore.setState({
+      loading: false,
+      activeQuality: source.quality,
+      fromCache: Boolean(source.fromCache),
+    });
     if (source.durationMs > 0) {
       progressStore.setState({ durationMs: source.durationMs });
     }
@@ -458,6 +493,134 @@ export const playerActions = {
       queue: nextQueue,
       index: index < currentIndex ? currentIndex - 1 : currentIndex,
     });
+  },
+
+  async switchQuality(quality: AudioQuality) {
+    const { track, playing } = playerStore.getState();
+    if (!track) {
+      return;
+    }
+    const resumePosMs = progressStore.getState().positionMs;
+    const sequence = ++loadSequence;
+    playerStore.setState({ loading: true, error: '' });
+    try {
+      const source = await resolveSongSource(track, quality, { ignoreCache: true });
+      if (sequence !== loadSequence) {
+        return;
+      }
+      const player = ensureAudioPlayer();
+      player.replace({ uri: source.uri });
+      const currentRate = playerStore.getState().playbackRate;
+      if (currentRate !== 1) {
+        player.setPlaybackRate(currentRate);
+      }
+      if (resumePosMs > 1000) {
+        void player.seekTo(resumePosMs / 1000);
+      }
+      if (playing) {
+        player.play();
+      }
+      playerStore.setState({
+        loading: false,
+        activeQuality: source.quality,
+        fromCache: false,
+      });
+    } catch (error) {
+      if (sequence !== loadSequence) {
+        return;
+      }
+      playerStore.setState({
+        loading: false,
+        error: error instanceof Error ? error.message : '音质切换失败',
+      });
+    }
+  },
+
+  setPlaybackRate(rate: number) {
+    playerStore.setState({ playbackRate: rate });
+    if (audioPlayer) {
+      audioPlayer.setPlaybackRate(rate);
+    }
+  },
+
+  setSleepTimer(minutes: number) {
+    if (sleepTimeout) {
+      clearTimeout(sleepTimeout);
+      sleepTimeout = null;
+    }
+    if (sleepTickInterval) {
+      clearInterval(sleepTickInterval);
+      sleepTickInterval = null;
+    }
+    const endAt = Date.now() + minutes * 60 * 1000;
+    playerStore.setState({
+      sleepTimerEndAt: endAt,
+      sleepMinutesLeft: minutes,
+      sleepAfterCurrentTrack: false,
+    });
+    sleepTickInterval = setInterval(() => {
+      const diff = endAt - Date.now();
+      if (diff <= 0) {
+        if (sleepTickInterval) {
+          clearInterval(sleepTickInterval);
+          sleepTickInterval = null;
+        }
+        return;
+      }
+      playerStore.setState({ sleepMinutesLeft: Math.max(1, Math.ceil(diff / 60000)) });
+    }, 15000);
+    sleepTimeout = setTimeout(() => {
+      sleepTimeout = null;
+      if (sleepTickInterval) {
+        clearInterval(sleepTickInterval);
+        sleepTickInterval = null;
+      }
+      audioPlayer?.pause();
+      playerStore.setState({ sleepTimerEndAt: null, sleepMinutesLeft: null });
+    }, minutes * 60 * 1000);
+  },
+
+  setSleepAfterCurrentTrack() {
+    if (sleepTimeout) {
+      clearTimeout(sleepTimeout);
+      sleepTimeout = null;
+    }
+    if (sleepTickInterval) {
+      clearInterval(sleepTickInterval);
+      sleepTickInterval = null;
+    }
+    playerStore.setState({
+      sleepTimerEndAt: null,
+      sleepMinutesLeft: null,
+      sleepAfterCurrentTrack: true,
+    });
+  },
+
+  clearSleepTimer() {
+    if (sleepTimeout) {
+      clearTimeout(sleepTimeout);
+      sleepTimeout = null;
+    }
+    if (sleepTickInterval) {
+      clearInterval(sleepTickInterval);
+      sleepTickInterval = null;
+    }
+    playerStore.setState({
+      sleepTimerEndAt: null,
+      sleepMinutesLeft: null,
+      sleepAfterCurrentTrack: false,
+    });
+  },
+
+  async cacheCurrentTrack(): Promise<boolean> {
+    const { track, activeQuality } = playerStore.getState();
+    if (!track) {
+      return false;
+    }
+    const targetQuality = activeQuality || getSettingsSnapshot().preferredQuality;
+    const source = await resolveSongSource(track, targetQuality, { ignoreCache: true });
+    await offlineCacheActions.downloadTrack(track, source.uri, source.quality);
+    return true;
   },
 
   clearQueue() {

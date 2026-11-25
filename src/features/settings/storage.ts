@@ -6,6 +6,8 @@ export type StoredAppearance = {
   themeMode?: unknown;
   accentId?: unknown;
   searchHistoryEnabled?: unknown;
+  preferredQuality?: unknown;
+  lyricSize?: unknown;
 };
 
 export async function readStoredAppearance(): Promise<StoredAppearance | null> {
@@ -23,6 +25,8 @@ export async function writeStoredAppearance(value: {
   themeMode: string;
   accentId: string;
   searchHistoryEnabled: boolean;
+  preferredQuality: string;
+  lyricSize: string;
 }): Promise<void> {
   try {
     await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(value));

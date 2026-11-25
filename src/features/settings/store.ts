@@ -5,12 +5,16 @@ import { DEFAULT_ACCENT_ID, isAccentPresetId, type AccentPresetId } from "@/cons
 import { readStoredAppearance, writeStoredAppearance } from "./storage";
 
 export type ThemeMode = "system" | "light" | "dark";
+export type AudioQuality = "128" | "320" | "flac";
+export type LyricSizePreset = "sm" | "md" | "lg";
 
 export type SettingsState = {
   hydrated: boolean;
   themeMode: ThemeMode;
   accentId: AccentPresetId;
   searchHistoryEnabled: boolean;
+  preferredQuality: AudioQuality;
+  lyricSize: LyricSizePreset;
 };
 
 const INITIAL_SETTINGS_STATE: SettingsState = {
@@ -18,6 +22,8 @@ const INITIAL_SETTINGS_STATE: SettingsState = {
   themeMode: "system",
   accentId: DEFAULT_ACCENT_ID,
   searchHistoryEnabled: true,
+  preferredQuality: "320",
+  lyricSize: "md",
 };
 
 function createStore<T extends object>(initial: T) {
@@ -60,6 +66,14 @@ function isThemeMode(value: unknown): value is ThemeMode {
   return value === "system" || value === "light" || value === "dark";
 }
 
+function isAudioQuality(value: unknown): value is AudioQuality {
+  return value === "128" || value === "320" || value === "flac";
+}
+
+function isLyricSizePreset(value: unknown): value is LyricSizePreset {
+  return value === "sm" || value === "md" || value === "lg";
+}
+
 let hydrationPromise: Promise<void> | null = null;
 
 /** 在根布局模块作用域调用一次;UI 由 hydrated 门控,不存在与用户操作的竞态。 */
@@ -74,6 +88,9 @@ export function hydrateSettings(): Promise<void> {
           stored && typeof stored.searchHistoryEnabled === "boolean"
             ? stored.searchHistoryEnabled
             : true,
+        preferredQuality:
+          stored && isAudioQuality(stored.preferredQuality) ? stored.preferredQuality : "320",
+        lyricSize: stored && isLyricSizePreset(stored.lyricSize) ? stored.lyricSize : "md",
         hydrated: true,
       });
     })().catch(() => {
@@ -84,8 +101,19 @@ export function hydrateSettings(): Promise<void> {
 }
 
 function persist() {
-  const { themeMode, accentId, searchHistoryEnabled } = settingsStore.getState();
-  void writeStoredAppearance({ themeMode, accentId, searchHistoryEnabled });
+  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize } =
+    settingsStore.getState();
+  void writeStoredAppearance({
+    themeMode,
+    accentId,
+    searchHistoryEnabled,
+    preferredQuality,
+    lyricSize,
+  });
+}
+
+export function getSettingsSnapshot(): SettingsState {
+  return settingsStore.getState();
 }
 
 export const settingsActions = {
@@ -99,6 +127,14 @@ export const settingsActions = {
   },
   setSearchHistoryEnabled(searchHistoryEnabled: boolean) {
     settingsStore.setState({ searchHistoryEnabled });
+    persist();
+  },
+  setPreferredQuality(preferredQuality: AudioQuality) {
+    settingsStore.setState({ preferredQuality });
+    persist();
+  },
+  setLyricSize(lyricSize: LyricSizePreset) {
+    settingsStore.setState({ lyricSize });
     persist();
   },
 };

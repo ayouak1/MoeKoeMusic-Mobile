@@ -14,7 +14,8 @@ import { isLoggedIn } from '@/features/account/user-api';
 import { libraryActions } from '@/features/library/store';
 import { playHistoryActions, usePlayHistory } from '@/features/player/history-store';
 import { searchHistoryActions, useSearchHistory } from '@/features/search/history-store';
-import { settingsActions, useSettings, type ThemeMode } from '@/features/settings/store';
+import { offlineCacheActions, useOfflineCache } from '@/features/player/cache-store';
+import { settingsActions, useSettings, type AudioQuality, type LyricSizePreset, type ThemeMode } from '@/features/settings/store';
 import { useEffectiveScheme, usePalette } from '@/hooks/use-palette';
 import { clearApiSession } from '@/lib/kugou-api';
 
@@ -23,6 +24,18 @@ const THEME_MODE_OPTIONS = [
   { value: 'light', label: '浅色' },
   { value: 'dark', label: '深色' },
 ] as const satisfies readonly { value: ThemeMode; label: string }[];
+
+const QUALITY_OPTIONS = [
+  { value: '128', label: '标准 128k' },
+  { value: '320', label: '高品质 320k' },
+  { value: 'flac', label: '无损 FLAC' },
+] as const satisfies readonly { value: AudioQuality; label: string }[];
+
+const LYRIC_SIZE_OPTIONS = [
+  { value: 'sm', label: '小' },
+  { value: 'md', label: '标准' },
+  { value: 'lg', label: '大' },
+] as const satisfies readonly { value: LyricSizePreset; label: string }[];
 
 const REPO_URL = 'https://github.com/MoeKoeMusic/MoeKoeMusic-Mobile';
 const WEBSITE_URL = 'https://music.moekoe.cn';
@@ -137,7 +150,9 @@ export default function SettingsScreen() {
   const scheme = useEffectiveScheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { themeMode, accentId, searchHistoryEnabled } = useSettings();
+  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize } = useSettings();
+  const offlineCache = useOfflineCache();
+  const cacheMb = (offlineCache.entries.reduce((sum, item) => sum + item.sizeBytes, 0) / (1024 * 1024)).toFixed(1);
   const searchHistory = useSearchHistory();
   const playHistory = usePlayHistory();
   const [loggedIn, setLoggedIn] = useState(() => isLoggedIn());
@@ -237,6 +252,39 @@ export default function SettingsScreen() {
           </YStack>
 
           <YStack gap={10}>
+            <SectionHeader title="播放与歌词" />
+            <YStack
+              backgroundColor={palette.card}
+              borderRadius={20}
+              borderWidth={StyleSheet.hairlineWidth}
+              borderColor={palette.border}
+              padding={14}
+              gap={14}>
+              <YStack gap={10}>
+                <Text color={palette.textSecondary} fontSize={13} fontWeight="600">
+                  默认在线音质（不支持时自动降级）
+                </Text>
+                <SegmentedControl
+                  options={QUALITY_OPTIONS}
+                  value={preferredQuality}
+                  onChange={settingsActions.setPreferredQuality}
+                />
+              </YStack>
+              <View height={StyleSheet.hairlineWidth} backgroundColor={palette.border} />
+              <YStack gap={10}>
+                <Text color={palette.textSecondary} fontSize={13} fontWeight="600">
+                  歌词字号
+                </Text>
+                <SegmentedControl
+                  options={LYRIC_SIZE_OPTIONS}
+                  value={lyricSize}
+                  onChange={settingsActions.setLyricSize}
+                />
+              </YStack>
+            </YStack>
+          </YStack>
+
+          <YStack gap={10}>
             <SectionHeader title="搜索与历史" />
             <YStack
               backgroundColor={palette.card}
@@ -295,6 +343,22 @@ export default function SettingsScreen() {
                   Alert.alert("清空历史播放", "确定要清空全部本地播放记录吗？", [
                     { text: "取消", style: "cancel" },
                     { text: "清空", style: "destructive", onPress: () => playHistoryActions.clear() },
+                  ]);
+                }}
+              />
+              <View
+                height={StyleSheet.hairlineWidth}
+                backgroundColor={palette.border}
+                marginHorizontal={14}
+              />
+              <SettingsRow
+                label="清空离线音频缓存"
+                value={offlineCache.entries.length ? `${offlineCache.entries.length} 首 · ${cacheMb} MB` : "空"}
+                onPress={() => {
+                  if (!offlineCache.entries.length) return;
+                  Alert.alert("清空离线缓存", "确定要删除全部已缓存的本地歌曲文件吗？", [
+                    { text: "取消", style: "cancel" },
+                    { text: "清空", style: "destructive", onPress: () => offlineCacheActions.clear() },
                   ]);
                 }}
               />

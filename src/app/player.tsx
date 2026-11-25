@@ -7,6 +7,8 @@ import {
   BackHandler,
   FlatList,
   InteractionManager,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -24,8 +26,10 @@ import { QueueSheet } from "@/components/ui/queue-sheet";
 import { showToast, ToastHost } from "@/components/ui/toast";
 import { TrackActionsSheet } from "@/components/ui/track-actions-sheet";
 import { libraryActions, useIsLiked } from "@/features/library/store";
+import { offlineCacheActions, useOfflineCache } from "@/features/player/cache-store";
 import { playerActions, usePlayer, usePlayerProgress } from "@/features/player/store";
 import type { PlayMode } from "@/features/player/types";
+import { useSettings, type AudioQuality } from "@/features/settings/store";
 import { usePalette } from "@/hooks/use-palette";
 import { formatClock, sizedImage } from "@/lib/format";
 import { shareTrack } from "@/lib/share";
@@ -44,6 +48,15 @@ const MODE_LABEL: Record<PlayMode, string> = {
 };
 
 type RightPaneTab = "lyrics" | "queue";
+
+const QUALITY_LABELS: Record<AudioQuality, string> = {
+  "128": "标准 128k",
+  "320": "HQ 320k",
+  flac: "SQ 无损",
+};
+
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2] as const;
+const SLEEP_OPTIONS = [15, 30, 60] as const;
 
 /**
  * Apple Music 风格圆角矩形封面：播放时全尺寸浮起，暂停时轻微缩小。
@@ -161,6 +174,7 @@ export default function PlayerScreen() {
   const [pageIndex, setPageIndex] = useState(0);
   const [rightTab, setRightTab] = useState<RightPaneTab>("lyrics");
   const [showTranslation, setShowTranslation] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
@@ -178,7 +192,15 @@ export default function PlayerScreen() {
     error,
     lyrics,
     lyricsStatus,
+    activeQuality,
+    fromCache,
+    playbackRate,
+    sleepTimerEndAt,
+    sleepMinutesLeft,
+    sleepAfterCurrentTrack,
   } = player;
+  const { lyricSize } = useSettings();
+  const offlineCache = useOfflineCache();
   const liked = useIsLiked(track?.hash);
 
   const containerWidth = containerSize.width || windowDims.width;
@@ -239,6 +261,10 @@ export default function PlayerScreen() {
     : Math.min(containerWidth - 72, compact ? 250 : 330);
   const busy = loading || buffering;
   const hasTranslation = lyrics.some((line) => Boolean(line.translation));
+  const isCached = Boolean(track && offlineCache.entries.some((item) => item.hash === track.hash));
+  const isDownloading = Boolean(track && offlineCache.downloadingHashes.includes(track.hash));
+  const splitLyricFontSize = lyricSize === "sm" ? 21 : lyricSize === "lg" ? 31 : 26;
+  const narrowLyricFontSize = lyricSize === "sm" ? 18 : lyricSize === "lg" ? 25 : 21;
   const coverBackdropUri = sizedImage(track?.coverUrl ?? null, 480);
 
   function handlePagerScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -340,6 +366,31 @@ export default function PlayerScreen() {
       ) : null}
 
       <AppleProgressBar />
+
+      {/* Apple Music 风格音质与状态胶囊（点击打开音质/倍速/定时/缓存面板） */}
+      <XStack justifyContent="center" alignItems="center" gap={8}>
+        <XStack
+          alignItems="center"
+          gap={5}
+          paddingHorizontal={10}
+          paddingVertical={4}
+          borderRadius={999}
+          backgroundColor="rgba(255, 255, 255, 0.12)"
+          pressStyle={{ opacity: 0.7 }}
+          onPress={() => setToolsOpen(true)}>
+          <Ionicons name="musical-note" size={11} color="rgba(255, 255, 255, 0.85)" />
+          <Text color="rgba(255, 255, 255, 0.88)" fontSize={11} fontWeight="600">
+            {QUALITY_LABELS[activeQuality]}
+            {fromCache ? " · 已缓存" : ""}
+            {playbackRate !== 1 ? ` · ${playbackRate}x` : ""}
+            {sleepAfterCurrentTrack
+              ? " · 播完暂停"
+              : sleepMinutesLeft
+              ? ` · ${sleepMinutesLeft}分后停`
+              : ""}
+          </Text>
+        </XStack>
+      </XStack>
 
       {/* 主播控：极简白图标，对齐 Apple Music */}
       <XStack alignItems="center" justifyContent="space-between" paddingHorizontal={12} paddingVertical={2}>
@@ -538,7 +589,7 @@ export default function PlayerScreen() {
                     <LyricsView
                       lines={lyrics}
                       status={lyricsStatus}
-                      fontSize={26}
+                      fontSize={splitLyricFontSize}
                       textAlign="left"
                       immersive
                       showTranslation={showTranslation}
@@ -663,7 +714,7 @@ export default function PlayerScreen() {
                     <LyricsView
                       lines={lyrics}
                       status={lyricsStatus}
-                      fontSize={21}
+                      fontSize={narrowLyricFontSize}
                       textAlign="left"
                       immersive
                       showTranslation={showTranslation}
@@ -711,6 +762,212 @@ export default function PlayerScreen() {
         track={track}
         initialView="pick"
       />
+      <Modal
+        visible={toolsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setToolsOpen(false)}>
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.55)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onPress={() => setToolsOpen(false)}>
+          <Pressable
+            style={{ width: "100%", maxWidth: 420 }}
+            onPress={(event) => event.stopPropagation()}>
+            <YStack
+              backgroundColor="#1B1C24"
+              borderRadius={24}
+              borderWidth={StyleSheet.hairlineWidth}
+              borderColor="rgba(255, 255, 255, 0.12)"
+              padding={20}
+              gap={18}>
+              <XStack alignItems="center" justifyContent="space-between">
+                <Text color="#FFFFFF" fontSize={17} fontWeight="800">
+                  播放设置与工具
+                </Text>
+                <XStack
+                  width={30}
+                  height={30}
+                  borderRadius={15}
+                  alignItems="center"
+                  justifyContent="center"
+                  backgroundColor="rgba(255, 255, 255, 0.12)"
+                  onPress={() => setToolsOpen(false)}>
+                  <Ionicons name="close" size={16} color="#FFFFFF" />
+                </XStack>
+              </XStack>
+
+              <YStack gap={8}>
+                <Text color="rgba(255, 255, 255, 0.65)" fontSize={12.5} fontWeight="600">
+                  切换音质
+                </Text>
+                <XStack gap={8}>
+                  {(["128", "320", "flac"] as const).map((q) => {
+                    const active = activeQuality === q && !fromCache;
+                    return (
+                      <XStack
+                        key={q}
+                        flex={1}
+                        height={38}
+                        borderRadius={12}
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={
+                          active ? "rgba(255, 255, 255, 0.24)" : "rgba(255, 255, 255, 0.08)"
+                        }
+                        pressStyle={{ opacity: 0.7 }}
+                        onPress={() => {
+                          setToolsOpen(false);
+                          void playerActions.switchQuality(q);
+                        }}>
+                        <Text color="#FFFFFF" fontSize={12.5} fontWeight={active ? "700" : "500"}>
+                          {QUALITY_LABELS[q]}
+                        </Text>
+                      </XStack>
+                    );
+                  })}
+                </XStack>
+              </YStack>
+
+              <YStack gap={8}>
+                <Text color="rgba(255, 255, 255, 0.65)" fontSize={12.5} fontWeight="600">
+                  倍速播放
+                </Text>
+                <XStack gap={8}>
+                  {SPEED_OPTIONS.map((rate) => {
+                    const active = playbackRate === rate;
+                    return (
+                      <XStack
+                        key={rate}
+                        flex={1}
+                        height={36}
+                        borderRadius={12}
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={
+                          active ? "rgba(255, 255, 255, 0.24)" : "rgba(255, 255, 255, 0.08)"
+                        }
+                        pressStyle={{ opacity: 0.7 }}
+                        onPress={() => playerActions.setPlaybackRate(rate)}>
+                        <Text color="#FFFFFF" fontSize={12.5} fontWeight={active ? "700" : "500"}>
+                          {rate}x
+                        </Text>
+                      </XStack>
+                    );
+                  })}
+                </XStack>
+              </YStack>
+
+              <YStack gap={8}>
+                <Text color="rgba(255, 255, 255, 0.65)" fontSize={12.5} fontWeight="600">
+                  定时关闭
+                </Text>
+                <XStack flexWrap="wrap" gap={8}>
+                  <XStack
+                    paddingHorizontal={12}
+                    height={36}
+                    borderRadius={12}
+                    alignItems="center"
+                    justifyContent="center"
+                    backgroundColor={
+                      !sleepTimerEndAt && !sleepAfterCurrentTrack
+                        ? "rgba(255, 255, 255, 0.24)"
+                        : "rgba(255, 255, 255, 0.08)"
+                    }
+                    pressStyle={{ opacity: 0.7 }}
+                    onPress={() => playerActions.clearSleepTimer()}>
+                    <Text color="#FFFFFF" fontSize={12.5} fontWeight="600">
+                      关闭
+                    </Text>
+                  </XStack>
+                  <XStack
+                    paddingHorizontal={12}
+                    height={36}
+                    borderRadius={12}
+                    alignItems="center"
+                    justifyContent="center"
+                    backgroundColor={
+                      sleepAfterCurrentTrack
+                        ? "rgba(255, 255, 255, 0.24)"
+                        : "rgba(255, 255, 255, 0.08)"
+                    }
+                    pressStyle={{ opacity: 0.7 }}
+                    onPress={() => playerActions.setSleepAfterCurrentTrack()}>
+                    <Text color="#FFFFFF" fontSize={12.5} fontWeight="600">
+                      播完当前
+                    </Text>
+                  </XStack>
+                  {SLEEP_OPTIONS.map((mins) => (
+                    <XStack
+                      key={mins}
+                      paddingHorizontal={12}
+                      height={36}
+                      borderRadius={12}
+                      alignItems="center"
+                      justifyContent="center"
+                      backgroundColor="rgba(255, 255, 255, 0.08)"
+                      pressStyle={{ opacity: 0.7 }}
+                      onPress={() => {
+                        playerActions.setSleepTimer(mins);
+                        showToast(`${mins} 分钟后自动暂停`);
+                      }}>
+                      <Text color="#FFFFFF" fontSize={12.5} fontWeight="600">
+                        {mins} 分钟
+                      </Text>
+                    </XStack>
+                  ))}
+                </XStack>
+              </YStack>
+
+              <XStack
+                height={42}
+                borderRadius={14}
+                alignItems="center"
+                justifyContent="center"
+                gap={8}
+                backgroundColor={
+                  isCached ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.22)"
+                }
+                opacity={isDownloading ? 0.6 : 1}
+                pressStyle={{ opacity: 0.75 }}
+                onPress={() => {
+                  if (isDownloading) return;
+                  if (isCached) {
+                    offlineCacheActions.remove(track.hash);
+                    showToast("已移除本地缓存");
+                  } else {
+                    void playerActions
+                      .cacheCurrentTrack()
+                      .then(() => showToast("已缓存到本地，断网可听"))
+                      .catch((err) => showToast(err instanceof Error ? err.message : "缓存失败"));
+                  }
+                }}>
+                {isDownloading ? (
+                  <Spinner size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons
+                    name={isCached ? "checkmark-circle" : "cloud-download-outline"}
+                    size={17}
+                    color="#FFFFFF"
+                  />
+                )}
+                <Text color="#FFFFFF" fontSize={13.5} fontWeight="700">
+                  {isDownloading
+                    ? "正在缓存..."
+                    : isCached
+                    ? "已离线缓存（点击移除）"
+                    : "离线缓存当前歌曲"}
+                </Text>
+              </XStack>
+            </YStack>
+          </Pressable>
+        </Pressable>
+      </Modal>
       <ToastHost />
     </View>
   );

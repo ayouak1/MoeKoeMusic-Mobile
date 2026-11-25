@@ -17,6 +17,7 @@ import {
 } from '@/features/account/user-api';
 import { signInDailyVip, upgradeDailyVip } from '@/features/account/vip-api';
 import { libraryActions, useLibrary, type LibraryPlaylist } from '@/features/library/store';
+import { usePlayHistory } from '@/features/player/history-store';
 import { MaxContentWidth } from '@/constants/theme';
 import { useDockContentInset } from '@/hooks/use-dock-inset';
 import { usePalette } from '@/hooks/use-palette';
@@ -207,6 +208,7 @@ export default function MeScreen() {
   const [createdOpen, setCreatedOpen] = useState(true);
   const [collectedOpen, setCollectedOpen] = useState(false);
   const library = useLibrary();
+  const playHistory = usePlayHistory();
 
   const handleUpgrade = useCallback(async () => {
     setSigningIn(true);
@@ -516,6 +518,13 @@ export default function MeScreen() {
                   subtitle="上传的音乐"
                   onPress={() => router.push('/cloud')}
                 />
+                <QuickEntryCard
+                  icon="time"
+                  gradient={['#7C6BFF', '#5B4CE8']}
+                  title="最近播放"
+                  subtitle={playHistory.length ? `${playHistory.length} 首` : '播放足迹'}
+                  onPress={() => router.push('/history')}
+                />
               </XStack>
 
               {state.error ? (
@@ -667,6 +676,14 @@ export default function MeScreen() {
                 </YStack>
               </YStack>
             )}
+
+            <QuickEntryCard
+              icon="time"
+              gradient={['#7C6BFF', '#5B4CE8']}
+              title="最近播放"
+              subtitle={playHistory.length ? `本地已记录 ${playHistory.length} 首` : '暂无播放记录'}
+              onPress={() => router.push('/history')}
+            />
 
           </YStack>
         )}

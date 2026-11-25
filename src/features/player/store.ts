@@ -10,6 +10,7 @@ import { useSyncExternalStore } from 'react';
 
 import { sizedImage } from '@/lib/format';
 
+import { playHistoryActions } from './history-store';
 import { loadLyricLines } from './lyrics';
 import { resolveSongSource } from './song-url';
 import type { LyricLine, LyricsStatus, PlayMode, PlayerTrack } from './types';
@@ -222,6 +223,7 @@ async function loadTrackAt(index: number, options?: { autoplay?: boolean }) {
     }
 
     failStreak = 0;
+    playHistoryActions.record(track);
     playerStore.setState({ loading: false });
     if (source.durationMs > 0) {
       progressStore.setState({ durationMs: source.durationMs });

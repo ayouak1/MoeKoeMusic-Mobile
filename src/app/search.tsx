@@ -43,6 +43,8 @@ import {
   type SearchPlaylist,
   type SearchTab,
 } from '@/features/search/search-api';
+import { searchHistoryActions, useSearchHistory } from '@/features/search/history-store';
+import { useSearchHistoryEnabled } from '@/features/settings/store';
 import { usePalette } from '@/hooks/use-palette';
 
 const SEARCH_TABS: { value: SearchTab; label: string }[] = [
@@ -143,6 +145,8 @@ export default function SearchScreen() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [results, setResults] = useState<ResultsState>(EMPTY_RESULTS);
   const [actionTrack, setActionTrack] = useState<PlayerTrack | null>(null);
+  const searchHistory = useSearchHistory();
+  const searchHistoryEnabled = useSearchHistoryEnabled();
 
   // 识曲等入口带初始关键词跳转进来时，直接执行一次搜索
   useEffect(() => {
@@ -260,6 +264,9 @@ export default function SearchScreen() {
     Keyboard.dismiss();
     setQuery(trimmed);
     setSuggestions([]);
+    if (searchHistoryEnabled) {
+      searchHistoryActions.add(trimmed);
+    }
     await runSearch(trimmed, activeTab);
   }
 
@@ -763,7 +770,67 @@ export default function SearchScreen() {
             />
           )
         ) : (
-          <YStack paddingHorizontal={16} gap={14}>
+          <YStack paddingHorizontal={16} gap={16}>
+            {searchHistoryEnabled && searchHistory.length ? (
+              <YStack gap={12}>
+                <XStack alignItems="center" justifyContent="space-between">
+                  <XStack alignItems="center" gap={6}>
+                    <Ionicons name="time-outline" size={16} color={palette.textSecondary} />
+                    <Text color={palette.text} fontSize={16} fontWeight="700">
+                      搜索历史
+                    </Text>
+                  </XStack>
+                  <XStack
+                    alignItems="center"
+                    gap={4}
+                    paddingHorizontal={10}
+                    paddingVertical={4}
+                    borderRadius={999}
+                    pressStyle={{ opacity: 0.6 }}
+                    onPress={() => searchHistoryActions.clear()}>
+                    <Ionicons name="trash-outline" size={13.5} color={palette.textTertiary} />
+                    <Text color={palette.textTertiary} fontSize={12.5} fontWeight="500">
+                      清空
+                    </Text>
+                  </XStack>
+                </XStack>
+                <XStack flexWrap="wrap" gap={9}>
+                  {searchHistory.map((item) => (
+                    <XStack
+                      key={item}
+                      alignItems="center"
+                      gap={6}
+                      paddingLeft={13}
+                      paddingRight={9}
+                      paddingVertical={8}
+                      borderRadius={999}
+                      backgroundColor={palette.card}
+                      borderWidth={StyleSheet.hairlineWidth}
+                      borderColor={palette.border}
+                      transition="quickest"
+                      pressStyle={{ opacity: 0.65, scale: 0.97 }}
+                      onPress={() => void commitSearch(item)}>
+                      <Text color={palette.text} fontSize={13.5} fontWeight="500">
+                        {item}
+                      </Text>
+                      <XStack
+                        width={18}
+                        height={18}
+                        borderRadius={9}
+                        alignItems="center"
+                        justifyContent="center"
+                        pressStyle={{ opacity: 0.5 }}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          searchHistoryActions.remove(item);
+                        }}>
+                        <Ionicons name="close" size={13} color={palette.textTertiary} />
+                      </XStack>
+                    </XStack>
+                  ))}
+                </XStack>
+              </YStack>
+            ) : null}
             {hotKeywords.length ? (
               <>
                 <XStack alignItems="center" gap={6}>

@@ -6,6 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 import { TamaguiProvider } from 'tamagui';
 
+import { playHistoryActions } from '@/features/player/history-store';
+import { searchHistoryActions } from '@/features/search/history-store';
 import { hydrateSettings, useSettingsHydrated } from '@/features/settings/store';
 import { ToastHost } from '@/components/ui/toast';
 import { useEffectiveScheme, usePalette } from '@/hooks/use-palette';
@@ -13,6 +15,8 @@ import { tamaguiConfig } from '../../tamagui.config';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 void hydrateSettings();
+void playHistoryActions.hydrate();
+void searchHistoryActions.hydrate();
 
 export default function RootLayout() {
   const hydrated = useSettingsHydrated();
@@ -89,6 +93,12 @@ export default function RootLayout() {
             options={{
               animation: 'fade_from_bottom',
               animationDuration: 220,
+            }}
+          />
+          <Stack.Screen
+            name="history"
+            options={{
+              animation: 'slide_from_right',
             }}
           />
           <Stack.Screen

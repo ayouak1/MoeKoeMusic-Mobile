@@ -1,21 +1,23 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from "react";
 
-import { DEFAULT_ACCENT_ID, isAccentPresetId, type AccentPresetId } from '@/constants/accents';
+import { DEFAULT_ACCENT_ID, isAccentPresetId, type AccentPresetId } from "@/constants/accents";
 
-import { readStoredAppearance, writeStoredAppearance } from './storage';
+import { readStoredAppearance, writeStoredAppearance } from "./storage";
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode = "system" | "light" | "dark";
 
 export type SettingsState = {
   hydrated: boolean;
   themeMode: ThemeMode;
   accentId: AccentPresetId;
+  searchHistoryEnabled: boolean;
 };
 
 const INITIAL_SETTINGS_STATE: SettingsState = {
   hydrated: false,
-  themeMode: 'system',
+  themeMode: "system",
   accentId: DEFAULT_ACCENT_ID,
+  searchHistoryEnabled: true,
 };
 
 function createStore<T extends object>(initial: T) {
@@ -55,7 +57,7 @@ function createStore<T extends object>(initial: T) {
 const settingsStore = createStore(INITIAL_SETTINGS_STATE);
 
 function isThemeMode(value: unknown): value is ThemeMode {
-  return value === 'system' || value === 'light' || value === 'dark';
+  return value === "system" || value === "light" || value === "dark";
 }
 
 let hydrationPromise: Promise<void> | null = null;
@@ -66,8 +68,12 @@ export function hydrateSettings(): Promise<void> {
     hydrationPromise = (async () => {
       const stored = await readStoredAppearance();
       settingsStore.setState({
-        themeMode: stored && isThemeMode(stored.themeMode) ? stored.themeMode : 'system',
+        themeMode: stored && isThemeMode(stored.themeMode) ? stored.themeMode : "system",
         accentId: stored && isAccentPresetId(stored.accentId) ? stored.accentId : DEFAULT_ACCENT_ID,
+        searchHistoryEnabled:
+          stored && typeof stored.searchHistoryEnabled === "boolean"
+            ? stored.searchHistoryEnabled
+            : true,
         hydrated: true,
       });
     })().catch(() => {
@@ -78,8 +84,8 @@ export function hydrateSettings(): Promise<void> {
 }
 
 function persist() {
-  const { themeMode, accentId } = settingsStore.getState();
-  void writeStoredAppearance({ themeMode, accentId });
+  const { themeMode, accentId, searchHistoryEnabled } = settingsStore.getState();
+  void writeStoredAppearance({ themeMode, accentId, searchHistoryEnabled });
 }
 
 export const settingsActions = {
@@ -89,6 +95,10 @@ export const settingsActions = {
   },
   setAccentId(accentId: AccentPresetId) {
     settingsStore.setState({ accentId });
+    persist();
+  },
+  setSearchHistoryEnabled(searchHistoryEnabled: boolean) {
+    settingsStore.setState({ searchHistoryEnabled });
     persist();
   },
 };
@@ -114,6 +124,14 @@ export function useAccentId(): AccentPresetId {
     settingsStore.subscribe,
     () => settingsStore.getState().accentId,
     () => INITIAL_SETTINGS_STATE.accentId
+  );
+}
+
+export function useSearchHistoryEnabled(): boolean {
+  return useSyncExternalStore(
+    settingsStore.subscribe,
+    () => settingsStore.getState().searchHistoryEnabled,
+    () => INITIAL_SETTINGS_STATE.searchHistoryEnabled
   );
 }
 

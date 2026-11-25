@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, View, XStack, YStack } from 'tamagui';
 
@@ -12,6 +12,8 @@ import { ACCENT_PRESETS, getPalette, type AccentPreset } from '@/constants/accen
 import { MaxContentWidth, type SchemeName } from '@/constants/theme';
 import { isLoggedIn } from '@/features/account/user-api';
 import { libraryActions } from '@/features/library/store';
+import { playHistoryActions, usePlayHistory } from '@/features/player/history-store';
+import { searchHistoryActions, useSearchHistory } from '@/features/search/history-store';
 import { settingsActions, useSettings, type ThemeMode } from '@/features/settings/store';
 import { useEffectiveScheme, usePalette } from '@/hooks/use-palette';
 import { clearApiSession } from '@/lib/kugou-api';
@@ -135,7 +137,9 @@ export default function SettingsScreen() {
   const scheme = useEffectiveScheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { themeMode, accentId } = useSettings();
+  const { themeMode, accentId, searchHistoryEnabled } = useSettings();
+  const searchHistory = useSearchHistory();
+  const playHistory = usePlayHistory();
   const [loggedIn, setLoggedIn] = useState(() => isLoggedIn());
   const [aboutVisible, setAboutVisible] = useState(false);
   const version = Constants.expoConfig?.version ?? '';
@@ -229,6 +233,71 @@ export default function SettingsScreen() {
                   ))}
                 </XStack>
               </YStack>
+            </YStack>
+          </YStack>
+
+          <YStack gap={10}>
+            <SectionHeader title="搜索与历史" />
+            <YStack
+              backgroundColor={palette.card}
+              borderRadius={20}
+              borderWidth={StyleSheet.hairlineWidth}
+              borderColor={palette.border}
+              paddingVertical={4}
+              overflow="hidden">
+              <XStack
+                alignItems="center"
+                justifyContent="space-between"
+                paddingHorizontal={16}
+                paddingVertical={12}
+                gap={12}>
+                <YStack flex={1} gap={2}>
+                  <Text color={palette.text} fontSize={14.5} fontWeight="500">
+                    记录搜索历史
+                  </Text>
+                  <Text color={palette.textTertiary} fontSize={12}>
+                    关闭后不再保存新搜索词，也不展示搜索历史
+                  </Text>
+                </YStack>
+                <Switch
+                  value={searchHistoryEnabled}
+                  onValueChange={settingsActions.setSearchHistoryEnabled}
+                  trackColor={{ false: palette.cardAlt, true: palette.accent }}
+                  thumbColor="#FFFFFF"
+                />
+              </XStack>
+              <View
+                height={StyleSheet.hairlineWidth}
+                backgroundColor={palette.border}
+                marginHorizontal={14}
+              />
+              <SettingsRow
+                label="清空搜索历史"
+                value={searchHistory.length ? `${searchHistory.length} 条` : "空"}
+                onPress={() => {
+                  if (!searchHistory.length) return;
+                  Alert.alert("清空搜索历史", "确定要清空全部搜索历史吗？", [
+                    { text: "取消", style: "cancel" },
+                    { text: "清空", style: "destructive", onPress: () => searchHistoryActions.clear() },
+                  ]);
+                }}
+              />
+              <View
+                height={StyleSheet.hairlineWidth}
+                backgroundColor={palette.border}
+                marginHorizontal={14}
+              />
+              <SettingsRow
+                label="清空历史播放"
+                value={playHistory.length ? `${playHistory.length} 首` : "空"}
+                onPress={() => {
+                  if (!playHistory.length) return;
+                  Alert.alert("清空历史播放", "确定要清空全部本地播放记录吗？", [
+                    { text: "取消", style: "cancel" },
+                    { text: "清空", style: "destructive", onPress: () => playHistoryActions.clear() },
+                  ]);
+                }}
+              />
             </YStack>
           </YStack>
 

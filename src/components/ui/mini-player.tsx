@@ -1,22 +1,12 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { StyleSheet } from 'react-native';
-import Animated, {
-  Easing,
-  FadeInDown,
-  FadeOutDown,
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
-import { Spinner, Text, View, XStack, YStack } from 'tamagui';
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { StyleSheet } from "react-native";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
+import { Spinner, Text, View, XStack, YStack } from "tamagui";
 
-import { Artwork } from '@/components/ui/artwork';
-import { playerActions, usePlayer, usePlayerProgress } from '@/features/player/store';
-import { useIsDark, usePalette } from '@/hooks/use-palette';
+import { Artwork } from "@/components/ui/artwork";
+import { playerActions, usePlayer, usePlayerProgress } from "@/features/player/store";
+import { useIsDark, usePalette } from "@/hooks/use-palette";
 
 export const MINI_PLAYER_HEIGHT = 58;
 
@@ -52,23 +42,6 @@ export function MiniPlayer() {
   const isDark = useIsDark();
   const router = useRouter();
   const { track, playing, loading, buffering } = usePlayer();
-  const rotation = useSharedValue(0);
-
-  useEffect(() => {
-    if (playing) {
-      rotation.value = withRepeat(
-        withTiming(rotation.value + 360, { duration: 16000, easing: Easing.linear }),
-        -1,
-        false
-      );
-    } else {
-      cancelAnimation(rotation);
-    }
-  }, [playing, rotation]);
-
-  const spinStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value % 360}deg` }],
-  }));
 
   if (!track) {
     return null;
@@ -82,7 +55,7 @@ export function MiniPlayer() {
     }
 
     lastOpenPlayerAt = now;
-    router.push('/player');
+    router.push("/player");
   }
 
   return (
@@ -92,7 +65,7 @@ export function MiniPlayer() {
         alignItems="center"
         gap={10}
         paddingHorizontal={12}
-        borderRadius={22}
+        borderRadius={20}
         borderWidth={StyleSheet.hairlineWidth}
         borderColor={palette.border}
         backgroundColor={palette.barSurface}
@@ -104,16 +77,14 @@ export function MiniPlayer() {
         transition="quickest"
         pressStyle={{ scale: 0.985 }}
         onPress={openPlayer}>
-        <Animated.View style={[{ width: 40, height: 40 }, spinStyle]}>
-          <Artwork uri={track.coverUrl} size={40} circle />
-        </Animated.View>
+        <Artwork uri={track.coverUrl} size={40} radius={10} />
 
         <YStack flex={1} gap={1}>
           <Text color={palette.text} fontSize={13.5} fontWeight="600" numberOfLines={1}>
             {track.title}
           </Text>
           <Text color={palette.textTertiary} fontSize={11.5} numberOfLines={1}>
-            {track.artist || '未知歌手'}
+            {track.artist || "未知歌手"}
           </Text>
         </YStack>
 
@@ -134,7 +105,7 @@ export function MiniPlayer() {
             <Spinner size="small" color={palette.accent} />
           ) : (
             <Ionicons
-              name={playing ? 'pause' : 'play'}
+              name={playing ? "pause" : "play"}
               size={18}
               color={palette.accent}
               style={playing ? undefined : { marginLeft: 2 }}

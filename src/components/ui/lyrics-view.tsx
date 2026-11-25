@@ -14,6 +14,7 @@ type LyricsViewProps = {
   status: LyricsStatus;
   fontSize?: number;
   textAlign?: "center" | "left";
+  immersive?: boolean;
   onSeekLine?: (line: LyricLine) => void;
   onRetry?: () => void;
 };
@@ -26,6 +27,7 @@ type LyricRowProps = {
   active: boolean;
   fontSize: number;
   textAlign: "center" | "left";
+  immersive: boolean;
   activeColor: ComponentProps<typeof Text>["color"];
   inactiveColor: ComponentProps<typeof Text>["color"];
   onLayoutLine: (index: number, offset: number) => void;
@@ -38,6 +40,7 @@ const LyricRow = memo(function LyricRow({
   active,
   fontSize,
   textAlign,
+  immersive,
   activeColor,
   inactiveColor,
   onLayoutLine,
@@ -50,13 +53,13 @@ const LyricRow = memo(function LyricRow({
       onPress={onSeekLine ? () => onSeekLine(line) : undefined}
       suppressHighlighting
       textAlign={textAlign}
-      paddingVertical={11}
+      paddingVertical={immersive ? 13 : 11}
       color={active ? activeColor : inactiveColor}
-      opacity={active ? 1 : 0.58}
+      opacity={active ? 1 : immersive ? 0.4 : 0.58}
       fontSize={fontSize}
-      lineHeight={Math.round(fontSize * 1.55)}
-      fontWeight={active ? "700" : "500"}
-      transform={[{ scale: active ? 1.06 : 1 }]}
+      lineHeight={Math.round(fontSize * 1.38)}
+      fontWeight={active ? "800" : immersive ? "700" : "500"}
+      transform={textAlign === "left" ? undefined : [{ scale: active ? 1.05 : 1 }]}
       transition="quick">
       {line.text}
     </Text>
@@ -68,6 +71,7 @@ export function LyricsView({
   status,
   fontSize = 16,
   textAlign = "center",
+  immersive = false,
   onSeekLine,
   onRetry,
 }: LyricsViewProps) {
@@ -99,16 +103,26 @@ export function LyricsView({
     }
 
     scrollRef.current?.scrollTo({
-      y: Math.max(0, offset - viewportHeight * 0.42),
+      y: Math.max(0, offset - viewportHeight * (immersive ? 0.34 : 0.42)),
       animated: true,
     });
-  }, [activeIndex, viewportHeight]);
+  }, [activeIndex, viewportHeight, immersive]);
+
+  const activeColor: ComponentProps<typeof Text>["color"] = immersive
+    ? "#FFFFFF"
+    : palette.accent;
+  const inactiveColor: ComponentProps<typeof Text>["color"] = immersive
+    ? "rgba(255, 255, 255, 0.85)"
+    : palette.textSecondary;
+  const mutedColor: ComponentProps<typeof Text>["color"] = immersive
+    ? "rgba(255, 255, 255, 0.58)"
+    : palette.textTertiary;
 
   if (status === "loading" || status === "idle") {
     return (
       <YStack flex={1} alignItems="center" justifyContent="center" gap={12}>
-        <Spinner size="large" color={palette.accent} />
-        <Text color={palette.textTertiary} fontSize={13}>
+        <Spinner size="large" color={immersive ? "#FFFFFF" : palette.accent} />
+        <Text color={mutedColor} fontSize={13}>
           歌词加载中
         </Text>
       </YStack>
@@ -124,10 +138,10 @@ export function LyricsView({
         gap={6}
         pressStyle={{ opacity: 0.65 }}
         onPress={onRetry}>
-        <Text color={palette.textSecondary} fontSize={16} fontWeight="600">
+        <Text color={inactiveColor} fontSize={16} fontWeight="600">
           歌词加载失败
         </Text>
-        <Text color={palette.textTertiary} fontSize={12.5}>
+        <Text color={mutedColor} fontSize={12.5}>
           点击重试
         </Text>
       </YStack>
@@ -137,10 +151,10 @@ export function LyricsView({
   if (!lines.length) {
     return (
       <YStack flex={1} alignItems="center" justifyContent="center" gap={6}>
-        <Text color={palette.textSecondary} fontSize={16} fontWeight="600">
+        <Text color={inactiveColor} fontSize={16} fontWeight="600">
           暂无歌词
         </Text>
-        <Text color={palette.textTertiary} fontSize={12.5}>
+        <Text color={mutedColor} fontSize={12.5}>
           暂未找到匹配歌词
         </Text>
       </YStack>
@@ -154,7 +168,7 @@ export function LyricsView({
       maskElement={
         <LinearGradient
           colors={["transparent", "black", "black", "transparent"]}
-          locations={[0, 0.14, 0.84, 1]}
+          locations={[0, 0.1, 0.85, 1]}
           style={{ flex: 1 }}
         />
       }>
@@ -167,8 +181,8 @@ export function LyricsView({
           userScrollUntil.current = Date.now() + RESUME_AUTO_SCROLL_MS;
         }}
         contentContainerStyle={{
-          paddingVertical: viewportHeight ? viewportHeight * 0.42 : 200,
-          paddingHorizontal: 28,
+          paddingVertical: viewportHeight ? viewportHeight * 0.36 : 200,
+          paddingHorizontal: immersive ? 16 : 28,
         }}>
         {lines.map((line, index) => (
           <LyricRow
@@ -178,8 +192,9 @@ export function LyricsView({
             active={index === activeIndex}
             fontSize={fontSize}
             textAlign={textAlign}
-            activeColor={palette.accent}
-            inactiveColor={palette.textSecondary}
+            immersive={immersive}
+            activeColor={activeColor}
+            inactiveColor={inactiveColor}
             onLayoutLine={handleLayoutLine}
             onSeekLine={onSeekLine}
           />

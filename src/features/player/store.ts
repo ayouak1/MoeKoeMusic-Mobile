@@ -111,6 +111,7 @@ let advanceTimer: ReturnType<typeof setTimeout> | null = null;
 let queueGeneration = 0;
 let sleepTimeout: ReturnType<typeof setTimeout> | null = null;
 let sleepTickInterval: ReturnType<typeof setInterval> | null = null;
+const playNextHashes = new Set<string>();
 
 // expo-audio 单 player 的锁屏/通知栏没有上一首/下一首命令(原生侧明确移除),
 // 只有 播放暂停+进度条+±10 秒;切歌按钮需迁移原生队列(AudioPlaylist),暂不做。
@@ -176,6 +177,14 @@ function handleTrackFinished() {
   }
 
   if (mode === 'none') {
+    const { index } = playerStore.getState();
+    const nextTrack = index >= 0 ? queue[index + 1] : undefined;
+    if (nextTrack && playNextHashes.has(nextTrack.hash)) {
+      playNextHashes.delete(nextTrack.hash);
+      void loadTrackAt(index + 1);
+      return;
+    }
+
     const player = ensureAudioPlayer();
     player.pause();
     void player.seekTo(0);
@@ -222,6 +231,7 @@ async function loadTrackAt(index: number, options?: { autoplay?: boolean }) {
     advanceTimer = null;
   }
 
+  playNextHashes.delete(track.hash);
   const sequence = ++loadSequence;
   playerStore.setState({
     index,
@@ -339,6 +349,7 @@ export const playerActions = {
    * 无可播曲目时返回 null。
    */
   async playTracks(tracks: PlayerTrack[], startIndex = 0): Promise<number | null> {
+    playNextHashes.clear();
     const playable = tracks.filter((track) => track.hash);
     if (!playable.length) {
       return null;
@@ -476,6 +487,10 @@ export const playerActions = {
       return;
     }
 
+    const removed = queue[index];
+    if (removed) {
+      playNextHashes.delete(removed.hash);
+    }
     const nextQueue = queue.filter((_, itemIndex) => itemIndex !== index);
 
     if (!nextQueue.length) {
@@ -651,10 +666,12 @@ export const playerActions = {
       track,
       ...filtered.slice(insertPos),
     ];
+    playNextHashes.add(track.hash);
     playerStore.setState({ queue: nextQueue, index: nextIndex });
   },
 
   clearQueue() {
+    playNextHashes.clear();
     loadSequence += 1;
     queueGeneration += 1;
     if (advanceTimer) {

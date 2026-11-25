@@ -58,6 +58,18 @@ export function formatApiError(error: unknown): string {
     return error.message;
   }
 
+  if (error && typeof error === "object") {
+    const obj = error as Record<string, unknown>;
+    const body = obj.body && typeof obj.body === "object" ? (obj.body as Record<string, unknown>) : null;
+    const msg = body ? pickText(body.msg, body.error, body.errmsg) : pickText(obj.message, obj.msg);
+    if (msg) {
+      return msg;
+    }
+    if (typeof obj.status === "number") {
+      return `请求失败 (HTTP ${obj.status})`;
+    }
+  }
+
   return String(error);
 }
 

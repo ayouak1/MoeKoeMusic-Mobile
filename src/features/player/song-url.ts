@@ -1,15 +1,10 @@
 import type { AudioQuality } from "@/features/settings/store";
+import { pickText, toRecord, toRecords } from "@/lib/api-parse";
 import { normalizeDurationMs } from "@/lib/format";
 import { mobileApi } from "@/lib/kugou-api";
 
 import { offlineCacheActions } from "./cache-store";
 import type { PlayerTrack } from "./types";
-
-type UnknownRecord = Record<string, unknown>;
-
-function toRecord(value: unknown): UnknownRecord {
-  return value && typeof value === "object" ? (value as UnknownRecord) : {};
-}
 
 function collectUrls(value: unknown): string[] {
   if (typeof value === "string" && value.trim()) {
@@ -38,7 +33,44 @@ const QUALITY_FALLBACKS: Record<AudioQuality, AudioQuality[]> = {
   "128": ["128"],
 };
 
-/** 解析歌曲真实播放地址；优先命中本地缓存，否则按音质降级探测。 */
+/**
+ * 通过 privilege_lite 获取同一首歌各档音质对应的真实 hash（避免用 128k hash 请求 320k/flac 报错）。
+ */
+async function resolveQualityHashes(
+  track: PlayerTrack
+): Promise<Partial<Record<AudioQuality, string>>> {
+  const map: Partial<Record<AudioQuality, string>> = {};
+  try {
+    const res = await mobileApi.privilege_lite({
+      hash: track.hash,
+      album_id: track.albumId ? String(track.albumId) : "0",
+    });
+    const dataList = toRecords(toRecord(res.body).data);
+    const first = dataList[0];
+    if (!first) {
+      return map;
+    }
+    const goods = toRecords(first.relate_goods);
+    for (const item of goods) {
+      const itemHash = pickText(item.hash);
+      if (!itemHash) continue;
+      const quality = pickText(item.quality).toLowerCase();
+      const level = Number(item.level ?? 0);
+      if (quality === "flac" || level === 5) {
+        map.flac = itemHash;
+      } else if (quality === "320" || level === 4) {
+        map["320"] = itemHash;
+      } else if (quality === "128" || level === 2) {
+        map["128"] = itemHash;
+      }
+    }
+  } catch {
+    // 探测失败时静默回退到 track.hash
+  }
+  return map;
+}
+
+/** 解析歌曲真实播放地址；优先命中本地缓存，否则按音质探测并自动降级。 */
 export async function resolveSongSource(
   track: PlayerTrack,
   preferredQuality: AudioQuality = "320",
@@ -60,14 +92,17 @@ export async function resolveSongSource(
     return resolveCloudSource(track);
   }
 
+  const qualityHashes =
+    preferredQuality !== "128" ? await resolveQualityHashes(track) : {};
   const attempts = QUALITY_FALLBACKS[preferredQuality] ?? ["320", "128"];
   let lastStatus = 0;
   let lastError: unknown = null;
 
   for (const quality of attempts) {
+    const targetHash = qualityHashes[quality] ?? track.hash;
     try {
       const response = await mobileApi.song_url({
-        hash: track.hash,
+        hash: targetHash,
         album_id: track.albumId ?? 0,
         album_audio_id: track.albumAudioId ?? 0,
         free_part: 1,

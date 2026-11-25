@@ -148,6 +148,14 @@ function handlePlaybackStatus(status: AudioStatus) {
 function handleTrackFinished() {
   const { mode, queue } = playerStore.getState();
 
+  if (mode === 'none') {
+    const player = ensureAudioPlayer();
+    player.pause();
+    void player.seekTo(0);
+    progressStore.setState({ positionMs: 0 });
+    return;
+  }
+
   if (mode === 'single' || queue.length <= 1) {
     const player = ensureAudioPlayer();
     void player.seekTo(0);
@@ -410,7 +418,7 @@ export const playerActions = {
 
   cycleMode() {
     const { mode } = playerStore.getState();
-    const order: PlayMode[] = ['sequence', 'shuffle', 'single'];
+    const order: PlayMode[] = ['sequence', 'shuffle', 'single', 'none'];
     const next = order[(order.indexOf(mode) + 1) % order.length];
     playerStore.setState({ mode: next });
     return next;

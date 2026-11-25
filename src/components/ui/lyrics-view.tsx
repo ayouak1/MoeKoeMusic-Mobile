@@ -15,6 +15,7 @@ type LyricsViewProps = {
   fontSize?: number;
   textAlign?: "center" | "left";
   immersive?: boolean;
+  showTranslation?: boolean;
   onSeekLine?: (line: LyricLine) => void;
   onRetry?: () => void;
 };
@@ -28,6 +29,7 @@ type LyricRowProps = {
   fontSize: number;
   textAlign: "center" | "left";
   immersive: boolean;
+  showTranslation: boolean;
   activeColor: ComponentProps<typeof Text>["color"];
   inactiveColor: ComponentProps<typeof Text>["color"];
   onLayoutLine: (index: number, offset: number) => void;
@@ -41,28 +43,49 @@ const LyricRow = memo(function LyricRow({
   fontSize,
   textAlign,
   immersive,
+  showTranslation,
   activeColor,
   inactiveColor,
   onLayoutLine,
   onSeekLine,
 }: LyricRowProps) {
+  const transFontSize = Math.max(13, Math.round(fontSize * 0.68));
+
   return (
-    <Text
+    <YStack
       width="100%"
       onLayout={(event) => onLayoutLine(index, event.nativeEvent.layout.y)}
       onPress={onSeekLine ? () => onSeekLine(line) : undefined}
-      suppressHighlighting
-      textAlign={textAlign}
-      paddingVertical={immersive ? 13 : 11}
-      color={active ? activeColor : inactiveColor}
-      opacity={active ? 1 : immersive ? 0.4 : 0.58}
-      fontSize={fontSize}
-      lineHeight={Math.round(fontSize * 1.38)}
-      fontWeight={active ? "800" : immersive ? "700" : "500"}
-      transform={textAlign === "left" ? undefined : [{ scale: active ? 1.05 : 1 }]}
-      transition="quick">
-      {line.text}
-    </Text>
+      paddingVertical={immersive ? 12 : 10}
+      gap={4}
+      pressStyle={onSeekLine ? { opacity: 0.7 } : undefined}>
+      <Text
+        width="100%"
+        suppressHighlighting
+        textAlign={textAlign}
+        color={active ? activeColor : inactiveColor}
+        opacity={active ? 1 : immersive ? 0.4 : 0.58}
+        fontSize={fontSize}
+        lineHeight={Math.round(fontSize * 1.36)}
+        fontWeight={active ? "800" : immersive ? "700" : "500"}
+        transform={textAlign === "left" ? undefined : [{ scale: active ? 1.05 : 1 }]}
+        transition="quick">
+        {line.text}
+      </Text>
+      {showTranslation && line.translation ? (
+        <Text
+          width="100%"
+          suppressHighlighting
+          textAlign={textAlign}
+          color={active ? activeColor : inactiveColor}
+          opacity={active ? 0.86 : immersive ? 0.34 : 0.48}
+          fontSize={transFontSize}
+          lineHeight={Math.round(transFontSize * 1.38)}
+          fontWeight={active ? "600" : "500"}>
+          {line.translation}
+        </Text>
+      ) : null}
+    </YStack>
   );
 });
 
@@ -72,6 +95,7 @@ export function LyricsView({
   fontSize = 16,
   textAlign = "center",
   immersive = false,
+  showTranslation = true,
   onSeekLine,
   onRetry,
 }: LyricsViewProps) {
@@ -193,6 +217,7 @@ export function LyricsView({
             fontSize={fontSize}
             textAlign={textAlign}
             immersive={immersive}
+            showTranslation={showTranslation}
             activeColor={activeColor}
             inactiveColor={inactiveColor}
             onLayoutLine={handleLayoutLine}

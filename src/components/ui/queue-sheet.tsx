@@ -15,6 +15,7 @@ const MODE_LABEL: Record<string, string> = {
   sequence: '顺序播放',
   shuffle: '随机播放',
   single: '单曲循环',
+  none: '禁用切歌',
 };
 
 const QUEUE_ITEM_HEIGHT = 58;

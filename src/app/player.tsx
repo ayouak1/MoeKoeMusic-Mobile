@@ -30,10 +30,17 @@ import { usePalette } from "@/hooks/use-palette";
 import { formatClock, sizedImage } from "@/lib/format";
 import { shareTrack } from "@/lib/share";
 
-const MODE_ICON: Record<PlayMode, "repeat" | "repeat-once" | "shuffle-variant"> = {
+const MODE_ICON: Record<Exclude<PlayMode, "none">, "repeat" | "repeat-once" | "shuffle-variant"> = {
   sequence: "repeat",
   shuffle: "shuffle-variant",
   single: "repeat-once",
+};
+
+const MODE_LABEL: Record<PlayMode, string> = {
+  sequence: "列表循环",
+  shuffle: "随机播放",
+  single: "单曲循环",
+  none: "禁用歌曲切换（播完停止）",
 };
 
 type RightPaneTab = "lyrics" | "queue";
@@ -153,6 +160,7 @@ export default function PlayerScreen() {
   });
   const [pageIndex, setPageIndex] = useState(0);
   const [rightTab, setRightTab] = useState<RightPaneTab>("lyrics");
+  const [showTranslation, setShowTranslation] = useState(true);
   const [queueOpen, setQueueOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
@@ -230,6 +238,7 @@ export default function PlayerScreen() {
     ? Math.min(Math.round(containerWidth * 0.31), Math.round(containerHeight * 0.44), 380)
     : Math.min(containerWidth - 72, compact ? 250 : 330);
   const busy = loading || buffering;
+  const hasTranslation = lyrics.some((line) => Boolean(line.translation));
   const coverBackdropUri = sizedImage(track?.coverUrl ?? null, 480);
 
   function handlePagerScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -340,12 +349,24 @@ export default function PlayerScreen() {
           alignItems="center"
           justifyContent="center"
           pressStyle={{ opacity: 0.55, scale: 0.9 }}
-          onPress={() => playerActions.cycleMode()}>
-          <MaterialCommunityIcons
-            name={MODE_ICON[mode]}
-            size={21}
-            color={mode === "sequence" ? "rgba(255, 255, 255, 0.55)" : "#FFFFFF"}
-          />
+          onPress={() => {
+            const next = playerActions.cycleMode();
+            showToast(MODE_LABEL[next]);
+          }}>
+          {mode === "none" ? (
+            <XStack alignItems="center" gap={1}>
+              <Ionicons name="play" size={14} color="#FFFFFF" />
+              <Text color="#FFFFFF" fontSize={13} fontWeight="800" lineHeight={15}>
+                1
+              </Text>
+            </XStack>
+          ) : (
+            <MaterialCommunityIcons
+              name={MODE_ICON[mode]}
+              size={21}
+              color={mode === "sequence" ? "rgba(255, 255, 255, 0.55)" : "#FFFFFF"}
+            />
+          )}
         </XStack>
 
         <XStack
@@ -513,15 +534,40 @@ export default function PlayerScreen() {
             <YStack flex={1.18} height="86%" justifyContent="center">
               {rightTab === "lyrics" ? (
                 lyricsMounted ? (
-                  <LyricsView
-                    lines={lyrics}
-                    status={lyricsStatus}
-                    fontSize={26}
-                    textAlign="left"
-                    immersive
-                    onSeekLine={handleSeekLine}
-                    onRetry={() => void playerActions.loadLyrics()}
-                  />
+                  <View flex={1} position="relative">
+                    <LyricsView
+                      lines={lyrics}
+                      status={lyricsStatus}
+                      fontSize={26}
+                      textAlign="left"
+                      immersive
+                      showTranslation={showTranslation}
+                      onSeekLine={handleSeekLine}
+                      onRetry={() => void playerActions.loadLyrics()}
+                    />
+                    {hasTranslation ? (
+                      <XStack
+                        position="absolute"
+                        right={12}
+                        bottom={8}
+                        width={36}
+                        height={36}
+                        borderRadius={12}
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={
+                          showTranslation ? "rgba(255, 255, 255, 0.24)" : "rgba(255, 255, 255, 0.1)"
+                        }
+                        pressStyle={{ opacity: 0.7, scale: 0.92 }}
+                        onPress={() => setShowTranslation((prev) => !prev)}>
+                        <Ionicons
+                          name="language"
+                          size={18}
+                          color={showTranslation ? "#FFFFFF" : "rgba(255, 255, 255, 0.55)"}
+                        />
+                      </XStack>
+                    ) : null}
+                  </View>
                 ) : null
               ) : (
                 <YStack flex={1} gap={12}>
@@ -613,15 +659,40 @@ export default function PlayerScreen() {
 
               <YStack width={containerWidth} paddingTop={8} paddingHorizontal={12}>
                 {lyricsMounted ? (
-                  <LyricsView
-                    lines={lyrics}
-                    status={lyricsStatus}
-                    fontSize={21}
-                    textAlign="left"
-                    immersive
-                    onSeekLine={handleSeekLine}
-                    onRetry={() => void playerActions.loadLyrics()}
-                  />
+                  <View flex={1} position="relative">
+                    <LyricsView
+                      lines={lyrics}
+                      status={lyricsStatus}
+                      fontSize={21}
+                      textAlign="left"
+                      immersive
+                      showTranslation={showTranslation}
+                      onSeekLine={handleSeekLine}
+                      onRetry={() => void playerActions.loadLyrics()}
+                    />
+                    {hasTranslation ? (
+                      <XStack
+                        position="absolute"
+                        right={16}
+                        bottom={10}
+                        width={34}
+                        height={34}
+                        borderRadius={11}
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={
+                          showTranslation ? "rgba(255, 255, 255, 0.24)" : "rgba(255, 255, 255, 0.1)"
+                        }
+                        pressStyle={{ opacity: 0.7, scale: 0.92 }}
+                        onPress={() => setShowTranslation((prev) => !prev)}>
+                        <Ionicons
+                          name="language"
+                          size={17}
+                          color={showTranslation ? "#FFFFFF" : "rgba(255, 255, 255, 0.55)"}
+                        />
+                      </XStack>
+                    ) : null}
+                  </View>
                 ) : null}
               </YStack>
             </ScrollView>

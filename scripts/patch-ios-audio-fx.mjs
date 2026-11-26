@@ -377,18 +377,23 @@ if (!playerSwift.includes("retry installTap when tracks become ready")) {
   console.log("[patch-ios-audio-fx] Patched AudioPlayer.swift (auto-retry installTap)");
 }
 
-// 4. Patch AudioModule.swift to expose setAudioEffectMode
+// 4. Patch AudioModule.swift to expose setAudioEffectMode at module level (before Class(AudioPlayer.self))
 const moduleSwiftPath = path.join(iosDir, "AudioModule.swift");
 let moduleSwift = fs.readFileSync(moduleSwiftPath, "utf8");
-if (!moduleSwift.includes("setAudioEffectMode")) {
+// Remove any old misplaced definition if re-running locally
+moduleSwift = moduleSwift.replace(
+  /\n      Function\("setAudioEffectMode"\) \{ \(mode: String\) in\n        AudioTapProcessor\.setEffectMode\(mode\)\n      \}\n/g,
+  "\n"
+);
+if (!moduleSwift.includes('Function("setAudioEffectMode")')) {
   moduleSwift = moduleSwift.replace(
-    `      Function("setAudioSamplingEnabled") { (player, enabled: Bool) in`,
-    `      Function("setAudioEffectMode") { (mode: String) in
-        AudioTapProcessor.setEffectMode(mode)
-      }
+    "    Class(AudioPlayer.self) {",
+    `    Function("setAudioEffectMode") { (mode: String) in
+      AudioTapProcessor.setEffectMode(mode)
+    }
 
-      Function("setAudioSamplingEnabled") { (player, enabled: Bool) in`
+    Class(AudioPlayer.self) {`
   );
   fs.writeFileSync(moduleSwiftPath, moduleSwift, "utf8");
-  console.log("[patch-ios-audio-fx] Patched AudioModule.swift");
+  console.log("[patch-ios-audio-fx] Patched AudioModule.swift (module-level)");
 }

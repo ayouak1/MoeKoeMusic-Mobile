@@ -119,6 +119,7 @@ jobs:
           npm ci
           npm --prefix api install
           npm run generate:mobile-api
+          node ./scripts/patch-ios-audio-fx.mjs
 
       - name: Patch expo-modules-jsi for Swift 6.2 C++ interop
         run: |

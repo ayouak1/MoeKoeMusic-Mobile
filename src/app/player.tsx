@@ -30,7 +30,7 @@ import { offlineCacheActions, useOfflineCache } from "@/features/player/cache-st
 import { playerActions, usePlayer, usePlayerProgress } from "@/features/player/store";
 import type { PlayMode } from "@/features/player/types";
 import { searchArtists } from "@/features/search/search-api";
-import { useSettings, type AudioQuality } from "@/features/settings/store";
+import { useSettings, type AudioEffectMode, type AudioQuality } from "@/features/settings/store";
 import { usePalette } from "@/hooks/use-palette";
 import { formatClock, sizedImage } from "@/lib/format";
 import { shareTrack } from "@/lib/share";
@@ -58,6 +58,22 @@ const QUALITY_LABELS: Record<AudioQuality, string> = {
 
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2] as const;
 const SLEEP_OPTIONS = [15, 30, 60] as const;
+
+const AUDIO_EFFECT_PRESETS: readonly {
+  id: AudioEffectMode;
+  title: string;
+  desc: string;
+  badge?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { id: "off", title: "原声关闭", desc: "无额外音染，还原母带原声", icon: "musical-note-outline" },
+  { id: "8d", title: "8D 环绕", desc: "声音追着耳朵动，360° 环绕", badge: "8D", icon: "infinite" },
+  { id: "3d", title: "3D 环绕", desc: "宽广空间声场，立体沉浸感", badge: "3D", icon: "planet-outline" },
+  { id: "stereo", title: "立体声增强", desc: "强化左右声道分离与临场感", icon: "headset-outline" },
+  { id: "bass", title: "超重低音", desc: "低频下潜增强，鼓点更有弹性", icon: "pulse" },
+  { id: "vocal", title: "清澈人声", desc: "突出人声频段，适合流行民谣", icon: "mic-outline" },
+  { id: "live", title: "现场演唱会", desc: "模拟 Live 厅堂混响空间感", icon: "sparkles-outline" },
+];
 
 /**
  * Apple Music 风格圆角矩形封面：播放时全尺寸浮起，暂停时轻微缩小。
@@ -176,6 +192,7 @@ export default function PlayerScreen() {
   const [rightTab, setRightTab] = useState<RightPaneTab>("lyrics");
   const [showTranslation, setShowTranslation] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
   const [artistBusy, setArtistBusy] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -201,7 +218,8 @@ export default function PlayerScreen() {
     sleepMinutesLeft,
     sleepAfterCurrentTrack,
   } = player;
-  const { lyricSize } = useSettings();
+  const { lyricSize, audioEffect } = useSettings();
+  const activeFxLabel = AUDIO_EFFECT_PRESETS.find((item) => item.id === audioEffect)?.title ?? "原声关闭";
   const offlineCache = useOfflineCache();
   const liked = useIsLiked(track?.hash);
 
@@ -419,8 +437,8 @@ export default function PlayerScreen() {
 
       <AppleProgressBar />
 
-      {/* Apple Music 风格音质与状态胶囊（点击打开音质/倍速/定时/缓存面板） */}
-      <XStack justifyContent="center" alignItems="center" gap={8}>
+      {/* Apple Music 风格音质、音效与状态胶囊 */}
+      <XStack justifyContent="center" alignItems="center" gap={8} flexWrap="wrap">
         <XStack
           alignItems="center"
           gap={5}
@@ -440,6 +458,30 @@ export default function PlayerScreen() {
               : sleepMinutesLeft
               ? ` · ${sleepMinutesLeft}分后停`
               : ""}
+          </Text>
+        </XStack>
+
+        <XStack
+          alignItems="center"
+          gap={5}
+          paddingHorizontal={10}
+          paddingVertical={4}
+          borderRadius={999}
+          backgroundColor={
+            audioEffect !== "off" ? "rgba(255, 214, 102, 0.24)" : "rgba(255, 255, 255, 0.12)"
+          }
+          pressStyle={{ opacity: 0.7 }}
+          onPress={() => setFxOpen(true)}>
+          <Ionicons
+            name={audioEffect === "8d" ? "infinite" : "options-outline"}
+            size={12}
+            color={audioEffect !== "off" ? "#FFD666" : "rgba(255, 255, 255, 0.85)"}
+          />
+          <Text
+            color={audioEffect !== "off" ? "#FFD666" : "rgba(255, 255, 255, 0.88)"}
+            fontSize={11}
+            fontWeight="600">
+            {audioEffect !== "off" ? activeFxLabel : "音效"}
           </Text>
         </XStack>
       </XStack>
@@ -1020,6 +1062,119 @@ export default function PlayerScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      {/* 洛雪/网易云风格音效选择面板 */}
+      <Modal
+        visible={fxOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFxOpen(false)}>
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.58)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onPress={() => setFxOpen(false)}>
+          <Pressable
+            style={{ width: "100%", maxWidth: 460 }}
+            onPress={(event) => event.stopPropagation()}>
+            <YStack
+              backgroundColor="#1B1C24"
+              borderRadius={24}
+              borderWidth={StyleSheet.hairlineWidth}
+              borderColor="rgba(255, 255, 255, 0.12)"
+              padding={20}
+              gap={16}>
+              <XStack alignItems="center" justifyContent="space-between">
+                <YStack gap={2}>
+                  <Text color="#FFFFFF" fontSize={17} fontWeight="800">
+                    音效选择
+                  </Text>
+                  <Text color="rgba(255, 255, 255, 0.55)" fontSize={11.5}>
+                    本地实时音频 DSP 处理，支持 8D / 3D 环绕与后台播放
+                  </Text>
+                </YStack>
+                <XStack
+                  width={30}
+                  height={30}
+                  borderRadius={15}
+                  alignItems="center"
+                  justifyContent="center"
+                  backgroundColor="rgba(255, 255, 255, 0.12)"
+                  onPress={() => setFxOpen(false)}>
+                  <Ionicons name="close" size={16} color="#FFFFFF" />
+                </XStack>
+              </XStack>
+
+              <XStack flexWrap="wrap" gap={10}>
+                {AUDIO_EFFECT_PRESETS.map((preset) => {
+                  const active = audioEffect === preset.id;
+                  return (
+                    <YStack
+                      key={preset.id}
+                      width="48%"
+                      padding={13}
+                      borderRadius={16}
+                      gap={6}
+                      backgroundColor={
+                        active ? "rgba(255, 214, 102, 0.16)" : "rgba(255, 255, 255, 0.07)"
+                      }
+                      borderWidth={1}
+                      borderColor={
+                        active ? "rgba(255, 214, 102, 0.6)" : "rgba(255, 255, 255, 0.08)"
+                      }
+                      pressStyle={{ opacity: 0.75, scale: 0.98 }}
+                      onPress={() => {
+                        playerActions.setAudioEffect(preset.id);
+                        showToast(`已切换音效：${preset.title}`);
+                      }}>
+                      <XStack alignItems="center" justifyContent="space-between">
+                        <Ionicons
+                          name={preset.icon}
+                          size={20}
+                          color={active ? "#FFD666" : "#FFFFFF"}
+                        />
+                        {preset.badge ? (
+                          <XStack
+                            paddingHorizontal={6}
+                            paddingVertical={2}
+                            borderRadius={6}
+                            backgroundColor={
+                              active ? "#FFD666" : "rgba(255, 214, 102, 0.22)"
+                            }>
+                            <Text
+                              color={active ? "#1B1C24" : "#FFD666"}
+                              fontSize={10}
+                              fontWeight="800">
+                              {preset.badge}
+                            </Text>
+                          </XStack>
+                        ) : null}
+                      </XStack>
+                      <Text
+                        color={active ? "#FFD666" : "#FFFFFF"}
+                        fontSize={14}
+                        fontWeight="700">
+                        {preset.title}
+                      </Text>
+                      <Text
+                        color="rgba(255, 255, 255, 0.56)"
+                        fontSize={11}
+                        lineHeight={15}
+                        numberOfLines={2}>
+                        {preset.desc}
+                      </Text>
+                    </YStack>
+                  );
+                })}
+              </XStack>
+            </YStack>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ToastHost />
     </View>
   );

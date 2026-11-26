@@ -1,4 +1,5 @@
 import {
+  AudioModule,
   createAudioPlayer,
   setAudioModeAsync,
   type AudioLockScreenOptions,
@@ -8,7 +9,7 @@ import {
 } from 'expo-audio';
 import { useSyncExternalStore } from 'react';
 
-import { getSettingsSnapshot, type AudioQuality } from '@/features/settings/store';
+import { getSettingsSnapshot, settingsActions, type AudioEffectMode, type AudioQuality } from '@/features/settings/store';
 import { formatApiError } from '@/lib/api-parse';
 import { sizedImage } from '@/lib/format';
 
@@ -130,6 +131,21 @@ function lockScreenMetadataFor(track: PlayerTrack): AudioMetadata {
   };
 }
 
+function applyNativeAudioEffect(mode: AudioEffectMode, player?: AudioPlayer | null) {
+  try {
+    const mod = AudioModule as unknown as { setAudioEffectMode?: (m: string) => void };
+    mod?.setAudioEffectMode?.(mode);
+    const target = player ?? audioPlayer;
+    if (target && typeof (target as unknown as { setAudioSamplingEnabled?: (v: boolean) => void }).setAudioSamplingEnabled === "function") {
+      (target as unknown as { setAudioSamplingEnabled: (v: boolean) => void }).setAudioSamplingEnabled(
+        mode !== "off"
+      );
+    }
+  } catch {
+    // 非 iOS 或未打补丁环境静默忽略
+  }
+}
+
 function ensureAudioPlayer(): AudioPlayer {
   if (audioPlayer) {
     return audioPlayer;
@@ -137,6 +153,7 @@ function ensureAudioPlayer(): AudioPlayer {
 
   audioPlayer = createAudioPlayer(null, { updateInterval: 500 });
   audioPlayer.addListener('playbackStatusUpdate', handlePlaybackStatus);
+  applyNativeAudioEffect(getSettingsSnapshot().audioEffect, audioPlayer);
   void setAudioModeAsync({
     playsInSilentMode: true,
     shouldPlayInBackground: true,
@@ -550,6 +567,11 @@ export const playerActions = {
         error: error instanceof Error ? error.message : '音质切换失败',
       });
     }
+  },
+
+  setAudioEffect(mode: AudioEffectMode) {
+    settingsActions.setAudioEffect(mode);
+    applyNativeAudioEffect(mode);
   },
 
   setPlaybackRate(rate: number) {

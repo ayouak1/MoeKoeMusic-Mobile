@@ -8,6 +8,7 @@ import { readStoredAppearance, writeStoredAppearance } from "./storage";
 export type ThemeMode = "system" | "light" | "dark";
 export type AudioQuality = "128" | "320" | "flac";
 export type LyricSizePreset = "sm" | "md" | "lg";
+export type AudioEffectMode = "off" | "8d" | "3d" | "stereo" | "bass" | "vocal" | "live";
 
 export type SettingsState = {
   hydrated: boolean;
@@ -17,6 +18,7 @@ export type SettingsState = {
   preferredQuality: AudioQuality;
   lyricSize: LyricSizePreset;
   mixWithOthers: boolean;
+  audioEffect: AudioEffectMode;
 };
 
 const INITIAL_SETTINGS_STATE: SettingsState = {
@@ -27,6 +29,7 @@ const INITIAL_SETTINGS_STATE: SettingsState = {
   preferredQuality: "320",
   lyricSize: "md",
   mixWithOthers: true,
+  audioEffect: "off",
 };
 
 function createStore<T extends object>(initial: T) {
@@ -73,6 +76,18 @@ function isAudioQuality(value: unknown): value is AudioQuality {
   return value === "128" || value === "320" || value === "flac";
 }
 
+function isAudioEffectMode(value: unknown): value is AudioEffectMode {
+  return (
+    value === "off" ||
+    value === "8d" ||
+    value === "3d" ||
+    value === "stereo" ||
+    value === "bass" ||
+    value === "vocal" ||
+    value === "live"
+  );
+}
+
 function isLyricSizePreset(value: unknown): value is LyricSizePreset {
   return value === "sm" || value === "md" || value === "lg";
 }
@@ -95,6 +110,7 @@ export function hydrateSettings(): Promise<void> {
           stored && isAudioQuality(stored.preferredQuality) ? stored.preferredQuality : "320",
         lyricSize: stored && isLyricSizePreset(stored.lyricSize) ? stored.lyricSize : "md",
         mixWithOthers: stored && typeof stored.mixWithOthers === "boolean" ? stored.mixWithOthers : true,
+        audioEffect: stored && isAudioEffectMode(stored.audioEffect) ? stored.audioEffect : "off",
         hydrated: true,
       });
     })().catch(() => {
@@ -105,7 +121,7 @@ export function hydrateSettings(): Promise<void> {
 }
 
 function persist() {
-  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize, mixWithOthers } =
+  const { themeMode, accentId, searchHistoryEnabled, preferredQuality, lyricSize, mixWithOthers, audioEffect } =
     settingsStore.getState();
   void writeStoredAppearance({
     themeMode,
@@ -114,6 +130,7 @@ function persist() {
     preferredQuality,
     lyricSize,
     mixWithOthers,
+    audioEffect,
   });
 }
 
@@ -140,6 +157,10 @@ export const settingsActions = {
   },
   setLyricSize(lyricSize: LyricSizePreset) {
     settingsStore.setState({ lyricSize });
+    persist();
+  },
+  setAudioEffect(audioEffect: AudioEffectMode) {
+    settingsStore.setState({ audioEffect });
     persist();
   },
   setMixWithOthers(mixWithOthers: boolean) {

@@ -3,7 +3,7 @@ import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
 
@@ -209,57 +209,50 @@ export default function MeScreen() {
     error: '',
   });
   const [createOpen, setCreateOpen] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
+  const vipAutoCheckingRef = useRef(false);
   // 创建的歌单默认展开，收藏的歌单默认收起
   const [createdOpen, setCreatedOpen] = useState(true);
   const [collectedOpen, setCollectedOpen] = useState(false);
   const library = useLibrary();
   const playHistory = usePlayHistory();
 
-  const handleUpgrade = useCallback(async () => {
-    setSigningIn(true);
-    try {
-      const result = await upgradeDailyVip();
-      showToast(result.message);
-      if (!result.alreadyDone) {
-        void load('refresh');
+  const checkAndAutoClaimVip = useCallback(async (profile: UserProfile) => {
+    if (profile.isVip) {
+      if (profile.vipExpireAt && profile.vipExpireAt > Date.now()) {
+        const hoursLeft = Math.max(1, Math.round((profile.vipExpireAt - Date.now()) / 3600000));
+        showToast(`您当前是vip呢，只剩下${hoursLeft}个小时了`);
+      } else {
+        showToast("您当前是vip呢");
       }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '升级失败，请稍后重试');
-    } finally {
-      setSigningIn(false);
-    }
-    // load 在下方定义，用 ref 稳定引用即可。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSignIn = useCallback(async () => {
-    if (signingIn) {
       return;
     }
-    setSigningIn(true);
+
+    if (vipAutoCheckingRef.current) {
+      return;
+    }
+    vipAutoCheckingRef.current = true;
     try {
       const result = await signInDailyVip();
-      if (!result.alreadyDone) {
-        void load('refresh');
-      }
-      if (result.canUpgrade) {
-        // 与桌面端一致：签到完成后询问是否升级概念版 VIP（更高音质），一天仅限一次
-        Alert.alert(result.message, '是否继续升级至概念版 VIP，享受更高音质？', [
-          { text: '暂不', style: 'cancel' },
-          { text: '升级', onPress: () => void handleUpgrade() },
-        ]);
+      if (!result.alreadyDone || result.canUpgrade) {
+        if (result.canUpgrade) {
+          await upgradeDailyVip().catch(() => undefined);
+        }
+        const refreshed = await fetchUserProfile().catch(() => null);
+        if (refreshed) {
+          startTransition(() => {
+            setState((current) => ({ ...current, profile: refreshed }));
+          });
+        }
+        showToast("检测到您当前不是VIP已自动帮您领取");
       } else {
         showToast(result.message);
       }
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '签到失败，请稍后重试');
+      showToast(error instanceof Error ? error.message : "自动领取 VIP 失败");
     } finally {
-      setSigningIn(false);
+      vipAutoCheckingRef.current = false;
     }
-    // load 在下方定义，用 ref 稳定引用即可；此处依赖 signingIn 足够。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signingIn, handleUpgrade]);
+  }, []);
 
   const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     const requestId = ++requestIdRef.current;
@@ -311,6 +304,10 @@ export default function MeScreen() {
           error: '',
         });
       });
+
+      if (mode === 'initial') {
+        void checkAndAutoClaimVip(profileResult.value);
+      }
     } catch (error) {
       if (requestId !== requestIdRef.current) return;
       startTransition(() => {
@@ -322,7 +319,7 @@ export default function MeScreen() {
         }));
       });
     }
-  }, []);
+  }, [checkAndAutoClaimVip]);
 
   useFocusEffect(
     useCallback(() => {
@@ -544,29 +541,7 @@ export default function MeScreen() {
                   ))}
                 </XStack>
 
-                <XStack
-                  marginTop={12}
-                  alignItems="center"
-                  justifyContent="center"
-                  gap={7}
-                  height={44}
-                  borderRadius={16}
-                  backgroundColor={palette.vipSoft}
-                  borderWidth={StyleSheet.hairlineWidth}
-                  borderColor={palette.vip}
-                  opacity={signingIn ? 0.6 : 1}
-                  transition="quickest"
-                  pressStyle={{ opacity: 0.75, scale: 0.99 }}
-                  onPress={() => void handleSignIn()}>
-                  {signingIn ? (
-                    <Spinner size="small" color={palette.vip} />
-                  ) : (
-                    <Ionicons name="gift" size={16} color={palette.vip} />
-                  )}
-                  <Text color={palette.vip} fontSize={14} fontWeight="700">
-                    {signingIn ? '签到中…' : '签到领取 VIP'}
-                  </Text>
-                </XStack>
+
               </YStack>
 
               <XStack gap={10}>

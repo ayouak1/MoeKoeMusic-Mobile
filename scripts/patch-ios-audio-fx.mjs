@@ -21,7 +21,7 @@ if (!header.includes("setEffectMode:")) {
   console.log("[patch-ios-audio-fx] Patched AudioTapProcessor.h");
 }
 
-// 2. Patch AudioTapProcessor.m with real-time C/ObjC DSP + fallback assetTrack lookup
+// 2. Patch AudioTapProcessor.m with Binaural HRTF 8D + 3D + Stereo + EQ + Live DSP
 const implPath = path.join(iosDir, "AudioTapProcessor.m");
 let impl = fs.readFileSync(implPath, "utf8");
 if (!impl.includes("setEffectMode:")) {
@@ -44,6 +44,7 @@ typedef NS_ENUM(NSInteger, MoeKoeFxMode) {
 static atomic_int g_moekoeFxMode = MoeKoeFxOff;
 
 #define MOEK_REVERB_BUF_SIZE 16384
+#define MOEK_ITD_BUF_SIZE 128
 
 typedef struct MoeKoeBiquad {
   float b0, b1, b2, a1, a2;
@@ -55,6 +56,20 @@ static inline float mkClamp(float v) {
   if (v > 0.99f) return 0.99f;
   if (v < -0.99f) return -0.99f;
   return v;
+}
+
+static inline float mkSoftLimit(float v) {
+  return tanhf(v * 0.92f);
+}
+
+static inline float mkReadFracDelay(const float *buf, int writeIdx, float delaySamples) {
+  if (delaySamples < 0.0f) delaySamples = 0.0f;
+  if (delaySamples > (float)(MOEK_ITD_BUF_SIZE - 2)) delaySamples = (float)(MOEK_ITD_BUF_SIZE - 2);
+  int d0 = (int)delaySamples;
+  float frac = delaySamples - (float)d0;
+  int idx0 = (writeIdx - d0 + MOEK_ITD_BUF_SIZE) & (MOEK_ITD_BUF_SIZE - 1);
+  int idx1 = (writeIdx - d0 - 1 + MOEK_ITD_BUF_SIZE) & (MOEK_ITD_BUF_SIZE - 1);
+  return buf[idx0] * (1.0f - frac) + buf[idx1] * frac;
 }
 
 static void mkSetupLowShelf(MoeKoeBiquad *bq, double sampleRate, double freq, double gainDb) {
@@ -124,6 +139,13 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   float delayL[MOEK_REVERB_BUF_SIZE];
   float delayR[MOEK_REVERB_BUF_SIZE];
   int delayWriteIdx;
+  float itdBufL[MOEK_ITD_BUF_SIZE];
+  float itdBufR[MOEK_ITD_BUF_SIZE];
+  int itdWriteIdx;
+  float headShadowL;
+  float headShadowR;
+  float backWarmL;
+  float backWarmR;
   MoeKoeBiquad bassShelf;
   MoeKoeBiquad vocalPeak;
 } AVAudioTapProcessorContext;`
@@ -169,6 +191,11 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   context->sampleRate = sr;
   context->panPhase = 0.0;
   context->delayWriteIdx = 0;
+  context->itdWriteIdx = 0;
+  context->headShadowL = 0.0f;
+  context->headShadowR = 0.0f;
+  context->backWarmL = 0.0f;
+  context->backWarmR = 0.0f;
   memset(&context->bassShelf, 0, sizeof(MoeKoeBiquad));
   memset(&context->vocalPeak, 0, sizeof(MoeKoeBiquad));
   mkSetupLowShelf(&context->bassShelf, sr, 135.0, 7.0);
@@ -199,7 +226,8 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
 
     if (left && right) {
       double sr = context->sampleRate > 0 ? context->sampleRate : 44100.0;
-      double phaseInc = (2.0 * M_PI * 0.16) / sr;
+      double phaseInc = (2.0 * M_PI / 9.5) / sr;
+      float maxItdSamples = (float)(sr * 0.00065);
       int d1 = (int)(sr * 0.019);
       int d2 = (int)(sr * 0.047);
       int d3 = (int)(sr * 0.093);
@@ -217,28 +245,68 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
         context->delayR[wIdx] = r;
 
         if (fxMode == MoeKoeFx8D) {
-          float pan = sinf((float)context->panPhase);
+          float theta = (float)context->panPhase;
           context->panPhase += phaseInc;
-          if (context->panPhase > 2.0 * M_PI) context->panPhase -= 2.0 * M_PI;
-          float angle = (pan + 1.0f) * (float)(M_PI * 0.25);
-          float gL = cosf(angle) * 1.25f;
-          float gR = sinf(angle) * 1.25f;
+          if (context->panPhase >= 2.0 * M_PI) context->panPhase -= 2.0 * M_PI;
+
+          float azSin = sinf(theta);
+          float azCos = cosf(theta);
+
+          // 1. 等功率 Mid/Side 编码，保持立体声细节的同时聚焦旋转声像
+          float mid = (l + r) * 0.7071f;
+          float side = (l - r) * 0.7071f;
+          float srcL = mid + side * 0.45f;
+          float srcR = mid - side * 0.45f;
+
+          int iw = context->itdWriteIdx;
+          context->itdBufL[iw] = srcL;
+          context->itdBufR[iw] = srcR;
+
+          // 2. 双耳 ITD（耳间时间差，最大 ±0.65ms 亚毫秒线性插值延迟）
+          float itdL = azSin > 0.0f ? azSin * maxItdSamples : 0.0f;
+          float itdR = azSin < 0.0f ? (-azSin) * maxItdSamples : 0.0f;
+          float earL = mkReadFracDelay(context->itdBufL, iw, itdL);
+          float earR = mkReadFracDelay(context->itdBufR, iw, itdR);
+          context->itdWriteIdx = (iw + 1) & (MOEK_ITD_BUF_SIZE - 1);
+
+          // 3. ILD + 头影效应动态高频衰减（远耳高频滚降）
+          float angle = (azSin + 1.0f) * (float)(M_PI * 0.25);
+          float gL = 0.28f + 0.84f * cosf(angle);
+          float gR = 0.28f + 0.84f * sinf(angle);
+          float alphaL = 0.92f - 0.62f * fmaxf(0.0f, azSin);
+          float alphaR = 0.92f - 0.62f * fmaxf(0.0f, -azSin);
+          context->headShadowL += alphaL * (earL - context->headShadowL);
+          context->headShadowR += alphaR * (earR - context->headShadowR);
+          float binL = context->headShadowL * gL;
+          float binR = context->headShadowR * gR;
+
+          // 4. 前后方耳廓深度感（声源绕到脑后时轻微柔化高频并加大空间反射）
+          float backAmt = fmaxf(0.0f, -azCos);
+          context->backWarmL += 0.35f * (binL - context->backWarmL);
+          context->backWarmR += 0.35f * (binR - context->backWarmR);
+          binL = binL * (1.0f - 0.28f * backAmt) + context->backWarmL * (0.28f * backAmt);
+          binR = binR * (1.0f - 0.28f * backAmt) + context->backWarmR * (0.28f * backAmt);
+
+          // 5. 早期反射 + 空间混响 + 软限幅防削波
+          int rIdx1 = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           int rIdx2 = (wIdx - d2 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
-          float rev = 0.12f * (context->delayL[rIdx2] + context->delayR[rIdx2]);
-          float mono = (l + r) * 0.56f;
-          l = mkClamp(mono * gL + rev);
-          r = mkClamp(mono * gR + rev);
+          int rIdx3 = (wIdx - d3 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
+          float revGain = 0.14f + 0.10f * backAmt;
+          float wetL = revGain * (0.50f * context->delayR[rIdx1] + 0.32f * context->delayL[rIdx2] + 0.18f * context->delayR[rIdx3]);
+          float wetR = revGain * (0.50f * context->delayL[rIdx1] + 0.32f * context->delayR[rIdx2] + 0.18f * context->delayL[rIdx3]);
+          l = mkSoftLimit(binL * 0.86f + wetL);
+          r = mkSoftLimit(binR * 0.86f + wetR);
         } else if (fxMode == MoeKoeFx3D) {
           int rIdx = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkClamp(mid * 0.75f + side * 1.95f + context->delayR[rIdx] * 0.16f);
-          r = mkClamp(mid * 0.75f - side * 1.95f + context->delayL[rIdx] * 0.16f);
+          l = mkSoftLimit(mid * 0.75f + side * 1.95f + context->delayR[rIdx] * 0.16f);
+          r = mkSoftLimit(mid * 0.75f - side * 1.95f + context->delayL[rIdx] * 0.16f);
         } else if (fxMode == MoeKoeFxStereo) {
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkClamp(mid + side * 1.65f);
-          r = mkClamp(mid - side * 1.65f);
+          l = mkSoftLimit(mid + side * 1.65f);
+          r = mkSoftLimit(mid - side * 1.65f);
         } else if (fxMode == MoeKoeFxBass) {
           l *= 0.76f;
           r *= 0.76f;
@@ -259,8 +327,8 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
           float wetR = 0.22f * context->delayR[rIdx1] + 0.16f * context->delayL[rIdx2] + 0.11f * context->delayR[rIdx3];
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkClamp((mid * 0.82f + side * 1.35f) + wetL);
-          r = mkClamp((mid * 0.82f - side * 1.35f) + wetR);
+          l = mkSoftLimit((mid * 0.82f + side * 1.35f) + wetL);
+          r = mkSoftLimit((mid * 0.82f - side * 1.35f) + wetR);
         }
 
         left[idx] = l;
@@ -283,7 +351,7 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
 
 // 3. Patch AudioPlayer.swift:
 //    - Skip JS event bridge when only DSP FX is active
-//    - Retry installTap() in periodic timeObserver if samplingEnabled && !tapInstalled (essential for remote HTTP streams where assetTrack loads asynchronously!)
+//    - Retry installTap() in periodic timeObserver when remote tracks finish loading
 const playerSwiftPath = path.join(iosDir, "AudioPlayer.swift");
 let playerSwift = fs.readFileSync(playerSwiftPath, "utf8");
 if (!playerSwift.includes("AudioTapProcessor.currentEffectMode()")) {

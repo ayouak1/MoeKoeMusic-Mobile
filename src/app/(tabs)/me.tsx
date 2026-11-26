@@ -1,15 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
 
 import { Artwork } from '@/components/ui/artwork';
 import { showToast } from '@/components/ui/toast';
 import { CreatePlaylistSheet } from '@/components/ui/track-actions-sheet';
+import {
+  AVATAR_PRESETS,
+  BG_PRESETS,
+  profileMediaActions,
+  useProfileMedia,
+} from '@/features/account/profile-media-store';
 import {
   fetchUserProfile,
   isLoggedIn,
@@ -339,10 +345,49 @@ export default function MeScreen() {
   const profile = state.loggedIn && state.profile ? state.profile : null;
   const bannerUrl = profile?.backgroundUrl ?? null;
   const [bannerFailed, setBannerFailed] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [pickingMedia, setPickingMedia] = useState<"" | "avatar" | "bg">("");
+  const profileMedia = useProfileMedia();
 
   useEffect(() => {
     setBannerFailed(false);
   }, [bannerUrl]);
+
+  const effectiveBannerSource: ImageSource | null =
+    profileMedia.bgMode === "custom" && profileMedia.customBgUri
+      ? { uri: profileMedia.customBgUri }
+      : profileMedia.bgMode !== "default"
+      ? (BG_PRESETS.find((item) => item.id === profileMedia.bgMode)?.source ?? null)
+      : bannerUrl && !bannerFailed
+      ? { uri: bannerUrl }
+      : null;
+
+  const effectiveAvatarSource: ImageSource | null =
+    profileMedia.avatarMode === "custom" && profileMedia.customAvatarUri
+      ? { uri: profileMedia.customAvatarUri }
+      : profileMedia.avatarMode !== "default"
+      ? (AVATAR_PRESETS.find((item) => item.id === profileMedia.avatarMode)?.source ?? null)
+      : profile?.avatarUrl
+      ? { uri: profile.avatarUrl }
+      : null;
+
+  async function handlePickCustom(kind: "avatar" | "bg") {
+    if (pickingMedia) return;
+    setPickingMedia(kind);
+    try {
+      const ok =
+        kind === "avatar"
+          ? await profileMediaActions.pickCustomAvatar()
+          : await profileMediaActions.pickCustomBg();
+      if (ok) {
+        showToast(kind === "avatar" ? "自定义头像已更新" : "自定义背景已更新");
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "图片读取失败");
+    } finally {
+      setPickingMedia("");
+    }
+  }
 
   return (
     <View flex={1} backgroundColor={palette.background}>
@@ -360,19 +405,27 @@ export default function MeScreen() {
         contentContainerStyle={{ paddingBottom: dockInset }}>
         {profile ? (
           <>
-            {/* 沉浸式背景头图，穿透状态栏 */}
-            <View height={insets.top + 148} backgroundColor={palette.cardAlt}>
-              {bannerUrl && !bannerFailed ? (
+            {/* 沉浸式背景头图，穿透状态栏（点击可自定义背景与头像） */}
+            <View
+              height={insets.top + 156}
+              backgroundColor={palette.cardAlt}
+              pressStyle={{ opacity: 0.94 }}
+              onPress={() => setCustomizeOpen(true)}>
+              {effectiveBannerSource ? (
                 <>
                   <Image
-                    source={{ uri: bannerUrl }}
+                    source={effectiveBannerSource}
                     style={StyleSheet.absoluteFill}
                     contentFit="cover"
                     transition={280}
-                    onError={() => setBannerFailed(true)}
+                    onError={() => {
+                      if (profileMedia.bgMode === "default") {
+                        setBannerFailed(true);
+                      }
+                    }}
                   />
                   <LinearGradient
-                    colors={['rgba(8, 8, 14, 0.22)', 'transparent', 'rgba(8, 8, 14, 0.28)']}
+                    colors={['rgba(8, 8, 14, 0.24)', 'transparent', 'rgba(8, 8, 14, 0.34)']}
                     locations={[0, 0.5, 1]}
                     style={StyleSheet.absoluteFill}
                   />
@@ -395,16 +448,35 @@ export default function MeScreen() {
               gap={18}>
               <YStack>
                 <XStack marginTop={-34} alignItems="flex-end" gap={12}>
-                  <View padding={3} borderRadius={999} backgroundColor={palette.background}>
-                    {profile.avatarUrl ? (
+                  <View
+                    padding={3}
+                    borderRadius={999}
+                    backgroundColor={palette.background}
+                    pressStyle={{ opacity: 0.85, scale: 0.97 }}
+                    onPress={() => setCustomizeOpen(true)}>
+                    {effectiveAvatarSource ? (
                       <Image
-                        source={{ uri: profile.avatarUrl }}
+                        source={effectiveAvatarSource}
                         style={styles.avatar}
                         contentFit="cover"
                       />
                     ) : (
                       <Artwork uri={null} size={68} circle />
                     )}
+                    <XStack
+                      position="absolute"
+                      right={0}
+                      bottom={0}
+                      width={22}
+                      height={22}
+                      borderRadius={11}
+                      alignItems="center"
+                      justifyContent="center"
+                      backgroundColor={palette.accent}
+                      borderWidth={2}
+                      borderColor={palette.background}>
+                      <Ionicons name="camera" size={11} color={palette.onAccent} />
+                    </XStack>
                   </View>
                   <XStack flex={1} alignItems="center" gap={8} paddingBottom={8}>
                     <Text
@@ -689,6 +761,34 @@ export default function MeScreen() {
         )}
       </ScrollView>
 
+      {profile ? (
+        <XStack
+          position="absolute"
+          top={insets.top + 8}
+          right={62}
+          height={38}
+          paddingHorizontal={12}
+          borderRadius={19}
+          alignItems="center"
+          gap={5}
+          backgroundColor={palette.barSurface}
+          borderWidth={StyleSheet.hairlineWidth}
+          borderColor={palette.border}
+          shadowColor={palette.dockShadow}
+          shadowOffset={{ width: 0, height: 4 }}
+          shadowOpacity={0.12}
+          shadowRadius={10}
+          elevation={4}
+          transition="quickest"
+          pressStyle={{ opacity: 0.7, scale: 0.96 }}
+          onPress={() => setCustomizeOpen(true)}>
+          <Ionicons name="color-palette-outline" size={16} color={palette.text} />
+          <Text color={palette.text} fontSize={12.5} fontWeight="600">
+            装扮
+          </Text>
+        </XStack>
+      ) : null}
+
       <XStack
         position="absolute"
         top={insets.top + 8}
@@ -713,6 +813,289 @@ export default function MeScreen() {
       </XStack>
 
       <CreatePlaylistSheet open={createOpen} onOpenChange={setCreateOpen} />
+
+      <Modal
+        visible={customizeOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCustomizeOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setCustomizeOpen(false)}>
+          <Pressable
+            style={styles.modalCardWrap}
+            onPress={(event) => event.stopPropagation()}>
+            <YStack
+              backgroundColor={palette.card}
+              borderRadius={24}
+              borderWidth={StyleSheet.hairlineWidth}
+              borderColor={palette.border}
+              padding={20}
+              gap={18}
+              maxHeight="86%">
+              <XStack alignItems="center" justifyContent="space-between">
+                <Text color={palette.text} fontSize={18} fontWeight="800">
+                  个性化头像与背景
+                </Text>
+                <XStack
+                  width={32}
+                  height={32}
+                  borderRadius={16}
+                  alignItems="center"
+                  justifyContent="center"
+                  backgroundColor={palette.cardAlt}
+                  pressStyle={{ opacity: 0.7 }}
+                  onPress={() => setCustomizeOpen(false)}>
+                  <Ionicons name="close" size={18} color={palette.textSecondary} />
+                </XStack>
+              </XStack>
+
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 20 }}>
+                {/* 头像选择 */}
+                <YStack gap={10}>
+                  <XStack alignItems="center" justifyContent="space-between">
+                    <Text color={palette.textSecondary} fontSize={13} fontWeight="700">
+                      头像（内置二次元/卡通 & 自定义上传）
+                    </Text>
+                  </XStack>
+                  <XStack flexWrap="wrap" gap={12}>
+                    <YStack
+                      alignItems="center"
+                      gap={6}
+                      width={68}
+                      pressStyle={{ opacity: 0.75 }}
+                      onPress={() => profileMediaActions.setAvatarMode("default")}>
+                      <View
+                        width={64}
+                        height={64}
+                        borderRadius={32}
+                        borderWidth={2.5}
+                        borderColor={
+                          profileMedia.avatarMode === "default" ? palette.accent : palette.border
+                        }
+                        overflow="hidden"
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={palette.cardAlt}>
+                        {profile?.avatarUrl ? (
+                          <Image
+                            source={{ uri: profile.avatarUrl }}
+                            style={{ width: 60, height: 60, borderRadius: 30 }}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <Ionicons name="person" size={24} color={palette.textTertiary} />
+                        )}
+                      </View>
+                      <Text
+                        color={profileMedia.avatarMode === "default" ? palette.accent : palette.textSecondary}
+                        fontSize={11}
+                        fontWeight="600">
+                        默认
+                      </Text>
+                    </YStack>
+
+                    {AVATAR_PRESETS.map((preset) => {
+                      const active = profileMedia.avatarMode === preset.id;
+                      return (
+                        <YStack
+                          key={preset.id}
+                          alignItems="center"
+                          gap={6}
+                          width={68}
+                          pressStyle={{ opacity: 0.75 }}
+                          onPress={() => profileMediaActions.setAvatarMode(preset.id)}>
+                          <View
+                            width={64}
+                            height={64}
+                            borderRadius={32}
+                            borderWidth={2.5}
+                            borderColor={active ? palette.accent : "transparent"}
+                            overflow="hidden"
+                            alignItems="center"
+                            justifyContent="center">
+                            <Image
+                              source={preset.source}
+                              style={{ width: 60, height: 60, borderRadius: 30 }}
+                              contentFit="cover"
+                            />
+                          </View>
+                          <Text
+                            color={active ? palette.accent : palette.textSecondary}
+                            fontSize={11}
+                            fontWeight="600"
+                            numberOfLines={1}>
+                            {preset.label}
+                          </Text>
+                        </YStack>
+                      );
+                    })}
+
+                    <YStack
+                      alignItems="center"
+                      gap={6}
+                      width={68}
+                      pressStyle={{ opacity: 0.75 }}
+                      onPress={() => void handlePickCustom("avatar")}>
+                      <View
+                        width={64}
+                        height={64}
+                        borderRadius={32}
+                        borderWidth={2}
+                        borderStyle="dashed"
+                        borderColor={
+                          profileMedia.avatarMode === "custom" ? palette.accent : palette.textTertiary
+                        }
+                        overflow="hidden"
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={palette.cardAlt}>
+                        {pickingMedia === "avatar" ? (
+                          <Spinner size="small" color={palette.accent} />
+                        ) : profileMedia.customAvatarUri ? (
+                          <Image
+                            source={{ uri: profileMedia.customAvatarUri }}
+                            style={{ width: 60, height: 60, borderRadius: 30 }}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <Ionicons name="cloud-upload-outline" size={22} color={palette.accent} />
+                        )}
+                      </View>
+                      <Text
+                        color={profileMedia.avatarMode === "custom" ? palette.accent : palette.textSecondary}
+                        fontSize={11}
+                        fontWeight="600">
+                        上传图片
+                      </Text>
+                    </YStack>
+                  </XStack>
+                </YStack>
+
+                {/* 背景选择 */}
+                <YStack gap={10}>
+                  <Text color={palette.textSecondary} fontSize={13} fontWeight="700">
+                    顶部背景（内置二次元/卡通 & 自定义上传）
+                  </Text>
+                  <XStack flexWrap="wrap" gap={10}>
+                    <YStack
+                      width="48%"
+                      gap={6}
+                      pressStyle={{ opacity: 0.75 }}
+                      onPress={() => profileMediaActions.setBgMode("default")}>
+                      <View
+                        height={78}
+                        borderRadius={14}
+                        borderWidth={2.5}
+                        borderColor={
+                          profileMedia.bgMode === "default" ? palette.accent : palette.border
+                        }
+                        overflow="hidden">
+                        {bannerUrl ? (
+                          <Image
+                            source={{ uri: bannerUrl }}
+                            style={StyleSheet.absoluteFill}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <LinearGradient
+                            colors={[palette.gradientStart, palette.gradientEnd]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={StyleSheet.absoluteFill}
+                          />
+                        )}
+                      </View>
+                      <Text
+                        color={profileMedia.bgMode === "default" ? palette.accent : palette.textSecondary}
+                        fontSize={11.5}
+                        fontWeight="600"
+                        textAlign="center">
+                        默认背景
+                      </Text>
+                    </YStack>
+
+                    {BG_PRESETS.map((preset) => {
+                      const active = profileMedia.bgMode === preset.id;
+                      return (
+                        <YStack
+                          key={preset.id}
+                          width="48%"
+                          gap={6}
+                          pressStyle={{ opacity: 0.75 }}
+                          onPress={() => profileMediaActions.setBgMode(preset.id)}>
+                          <View
+                            height={78}
+                            borderRadius={14}
+                            borderWidth={2.5}
+                            borderColor={active ? palette.accent : "transparent"}
+                            overflow="hidden">
+                            <Image
+                              source={preset.source}
+                              style={StyleSheet.absoluteFill}
+                              contentFit="cover"
+                            />
+                          </View>
+                          <Text
+                            color={active ? palette.accent : palette.textSecondary}
+                            fontSize={11.5}
+                            fontWeight="600"
+                            textAlign="center">
+                            {preset.label}
+                          </Text>
+                        </YStack>
+                      );
+                    })}
+
+                    <YStack
+                      width="48%"
+                      gap={6}
+                      pressStyle={{ opacity: 0.75 }}
+                      onPress={() => void handlePickCustom("bg")}>
+                      <View
+                        height={78}
+                        borderRadius={14}
+                        borderWidth={2}
+                        borderStyle="dashed"
+                        borderColor={
+                          profileMedia.bgMode === "custom" ? palette.accent : palette.textTertiary
+                        }
+                        overflow="hidden"
+                        alignItems="center"
+                        justifyContent="center"
+                        backgroundColor={palette.cardAlt}>
+                        {pickingMedia === "bg" ? (
+                          <Spinner size="small" color={palette.accent} />
+                        ) : profileMedia.customBgUri ? (
+                          <Image
+                            source={{ uri: profileMedia.customBgUri }}
+                            style={StyleSheet.absoluteFill}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <YStack alignItems="center" gap={4}>
+                            <Ionicons name="image-outline" size={22} color={palette.accent} />
+                            <Text color={palette.accent} fontSize={11} fontWeight="600">
+                              选择文件/图片
+                            </Text>
+                          </YStack>
+                        )}
+                      </View>
+                      <Text
+                        color={profileMedia.bgMode === "custom" ? palette.accent : palette.textSecondary}
+                        fontSize={11.5}
+                        fontWeight="600"
+                        textAlign="center">
+                        自定义上传
+                      </Text>
+                    </YStack>
+                  </XStack>
+                </YStack>
+              </ScrollView>
+            </YStack>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -727,5 +1110,16 @@ const styles = StyleSheet.create({
     width: 66,
     height: 66,
     borderRadius: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(8, 8, 14, 0.56)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCardWrap: {
+    width: "100%",
+    maxWidth: 520,
   },
 });

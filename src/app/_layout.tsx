@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 import { TamaguiProvider } from 'tamagui';
 
+import { profileMediaActions } from '@/features/account/profile-media-store';
 import { offlineCacheActions } from '@/features/player/cache-store';
 import { playHistoryActions } from '@/features/player/history-store';
 import { searchHistoryActions } from '@/features/search/history-store';
@@ -18,6 +19,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 void hydrateSettings();
 void playHistoryActions.hydrate();
 void offlineCacheActions.hydrate();
+void profileMediaActions.hydrate();
 void searchHistoryActions.hydrate();
 
 export default function RootLayout() {

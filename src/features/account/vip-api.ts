@@ -1,5 +1,8 @@
 import { pickNumber, pickText, toRecord } from '@/lib/api-parse';
+import { showToast } from '@/components/ui/toast';
 import { bootstrapMobileApi, getApiSession, mobileApi } from '@/lib/kugou-api';
+
+import { fetchUserProfile, isLoggedIn } from './user-api';
 
 export type VipSignInResult = {
   message: string;
@@ -89,5 +92,50 @@ export async function upgradeDailyVip(): Promise<VipSignInResult> {
     }
     const msg = pickText(toRecord((error as Record<string, unknown>)?.body).error_msg);
     throw new Error(msg || '升级 VIP 失败，一天仅限一次');
+  }
+}
+
+
+let launchVipChecked = false;
+
+/**
+ * App 启动时自动检测当前账号 VIP 状态：
+ * - 是 VIP：弹出剩余小时数提示
+ * - 不是 VIP：自动领取并升级，弹出已自动领取提示
+ */
+export async function autoCheckAndClaimVipOnLaunch(): Promise<void> {
+  if (launchVipChecked) {
+    return;
+  }
+  launchVipChecked = true;
+
+  try {
+    await bootstrapMobileApi();
+    if (!isLoggedIn()) {
+      return;
+    }
+
+    const profile = await fetchUserProfile();
+    if (profile.isVip) {
+      if (profile.vipExpireAt && profile.vipExpireAt > Date.now()) {
+        const hoursLeft = Math.max(1, Math.round((profile.vipExpireAt - Date.now()) / 3600000));
+        showToast(`您当前是vip呢，只剩下${hoursLeft}个小时了`);
+      } else {
+        showToast("您当前是vip呢");
+      }
+      return;
+    }
+
+    const result = await signInDailyVip();
+    if (!result.alreadyDone || result.canUpgrade) {
+      if (result.canUpgrade) {
+        await upgradeDailyVip().catch(() => undefined);
+      }
+      showToast("检测到您当前不是VIP已自动帮您领取");
+    } else {
+      showToast(result.message);
+    }
+  } catch {
+    // 启动静默检测失败不阻断首页使用
   }
 }

@@ -21,7 +21,6 @@ import {
   isLoggedIn,
   type UserProfile,
 } from '@/features/account/user-api';
-import { signInDailyVip, upgradeDailyVip } from '@/features/account/vip-api';
 import { libraryActions, useLibrary, type LibraryPlaylist } from '@/features/library/store';
 import { usePlayHistory } from '@/features/player/history-store';
 import { MaxContentWidth } from '@/constants/theme';
@@ -209,50 +208,13 @@ export default function MeScreen() {
     error: '',
   });
   const [createOpen, setCreateOpen] = useState(false);
-  const vipAutoCheckingRef = useRef(false);
   // 创建的歌单默认展开，收藏的歌单默认收起
   const [createdOpen, setCreatedOpen] = useState(true);
   const [collectedOpen, setCollectedOpen] = useState(false);
   const library = useLibrary();
   const playHistory = usePlayHistory();
 
-  const checkAndAutoClaimVip = useCallback(async (profile: UserProfile) => {
-    if (profile.isVip) {
-      if (profile.vipExpireAt && profile.vipExpireAt > Date.now()) {
-        const hoursLeft = Math.max(1, Math.round((profile.vipExpireAt - Date.now()) / 3600000));
-        showToast(`您当前是vip呢，只剩下${hoursLeft}个小时了`);
-      } else {
-        showToast("您当前是vip呢");
-      }
-      return;
-    }
 
-    if (vipAutoCheckingRef.current) {
-      return;
-    }
-    vipAutoCheckingRef.current = true;
-    try {
-      const result = await signInDailyVip();
-      if (!result.alreadyDone || result.canUpgrade) {
-        if (result.canUpgrade) {
-          await upgradeDailyVip().catch(() => undefined);
-        }
-        const refreshed = await fetchUserProfile().catch(() => null);
-        if (refreshed) {
-          startTransition(() => {
-            setState((current) => ({ ...current, profile: refreshed }));
-          });
-        }
-        showToast("检测到您当前不是VIP已自动帮您领取");
-      } else {
-        showToast(result.message);
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "自动领取 VIP 失败");
-    } finally {
-      vipAutoCheckingRef.current = false;
-    }
-  }, []);
 
   const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     const requestId = ++requestIdRef.current;
@@ -305,9 +267,6 @@ export default function MeScreen() {
         });
       });
 
-      if (mode === 'initial') {
-        void checkAndAutoClaimVip(profileResult.value);
-      }
     } catch (error) {
       if (requestId !== requestIdRef.current) return;
       startTransition(() => {
@@ -319,7 +278,7 @@ export default function MeScreen() {
         }));
       });
     }
-  }, [checkAndAutoClaimVip]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {

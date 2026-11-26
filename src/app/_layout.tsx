@@ -7,6 +7,7 @@ import { useEffect, useMemo } from 'react';
 import { TamaguiProvider } from 'tamagui';
 
 import { profileMediaActions } from '@/features/account/profile-media-store';
+import { autoCheckAndClaimVipOnLaunch } from '@/features/account/vip-api';
 import { offlineCacheActions } from '@/features/player/cache-store';
 import { playHistoryActions } from '@/features/player/history-store';
 import { searchHistoryActions } from '@/features/search/history-store';
@@ -45,6 +46,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (hydrated) {
       void SplashScreen.hideAsync().catch(() => undefined);
+      void autoCheckAndClaimVipOnLaunch();
     }
   }, [hydrated]);
 

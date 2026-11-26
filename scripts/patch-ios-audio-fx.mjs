@@ -21,7 +21,7 @@ if (!header.includes("setEffectMode:")) {
   console.log("[patch-ios-audio-fx] Patched AudioTapProcessor.h");
 }
 
-// 2. Patch AudioTapProcessor.m with real-time C/ObjC DSP (8D auto-pan, 3D, stereo, bass, vocal, live)
+// 2. Patch AudioTapProcessor.m with real-time C/ObjC DSP + fallback assetTrack lookup
 const implPath = path.join(iosDir, "AudioTapProcessor.m");
 let impl = fs.readFileSync(implPath, "utf8");
 if (!impl.includes("setEffectMode:")) {
@@ -150,6 +150,14 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   );
 
   impl = impl.replace(
+    `  AVAssetTrack *track = _player.currentItem.tracks.firstObject.assetTrack;`,
+    `  AVAssetTrack *track = _player.currentItem.tracks.firstObject.assetTrack;
+  if (!track) {
+    track = [_player.currentItem.asset tracksWithMediaType:AVMediaTypeAudio].firstObject;
+  }`
+  );
+
+  impl = impl.replace(
     `  if (processingFormat->mFormatFlags & kAudioFormatFlagIsNonInterleaved) {
     context->isNonInterleaved = true;
   }
@@ -163,8 +171,8 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   context->delayWriteIdx = 0;
   memset(&context->bassShelf, 0, sizeof(MoeKoeBiquad));
   memset(&context->vocalPeak, 0, sizeof(MoeKoeBiquad));
-  mkSetupLowShelf(&context->bassShelf, sr, 135.0, 6.5);
-  mkSetupPeaking(&context->vocalPeak, sr, 2400.0, 0.9, 5.0);
+  mkSetupLowShelf(&context->bassShelf, sr, 135.0, 7.0);
+  mkSetupPeaking(&context->vocalPeak, sr, 2400.0, 0.9, 5.5);
 }`
   );
 
@@ -191,10 +199,10 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
 
     if (left && right) {
       double sr = context->sampleRate > 0 ? context->sampleRate : 44100.0;
-      double phaseInc = (2.0 * M_PI * 0.125) / sr;
-      int d1 = (int)(sr * 0.017);
-      int d2 = (int)(sr * 0.043);
-      int d3 = (int)(sr * 0.089);
+      double phaseInc = (2.0 * M_PI * 0.16) / sr;
+      int d1 = (int)(sr * 0.019);
+      int d2 = (int)(sr * 0.047);
+      int d3 = (int)(sr * 0.093);
       if (d1 >= MOEK_REVERB_BUF_SIZE) d1 = MOEK_REVERB_BUF_SIZE - 1;
       if (d2 >= MOEK_REVERB_BUF_SIZE) d2 = MOEK_REVERB_BUF_SIZE - 1;
       if (d3 >= MOEK_REVERB_BUF_SIZE) d3 = MOEK_REVERB_BUF_SIZE - 1;
@@ -213,38 +221,33 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
           context->panPhase += phaseInc;
           if (context->panPhase > 2.0 * M_PI) context->panPhase -= 2.0 * M_PI;
           float angle = (pan + 1.0f) * (float)(M_PI * 0.25);
-          float gL = cosf(angle) * 1.15f;
-          float gR = sinf(angle) * 1.15f;
-          int rIdx = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
+          float gL = cosf(angle) * 1.25f;
+          float gR = sinf(angle) * 1.25f;
           int rIdx2 = (wIdx - d2 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
-          float rev = 0.14f * (context->delayL[rIdx2] + context->delayR[rIdx2]);
-          float mono = (l + r) * 0.52f;
-          float outL = mono * gL + context->delayR[rIdx] * 0.16f + rev;
-          float outR = mono * gR + context->delayL[rIdx] * 0.16f + rev;
-          l = mkClamp(outL);
-          r = mkClamp(outR);
+          float rev = 0.12f * (context->delayL[rIdx2] + context->delayR[rIdx2]);
+          float mono = (l + r) * 0.56f;
+          l = mkClamp(mono * gL + rev);
+          r = mkClamp(mono * gR + rev);
         } else if (fxMode == MoeKoeFx3D) {
           int rIdx = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          float outL = mid * 0.85f + side * 1.65f + context->delayR[rIdx] * 0.18f;
-          float outR = mid * 0.85f - side * 1.65f + context->delayL[rIdx] * 0.18f;
-          l = mkClamp(outL);
-          r = mkClamp(outR);
+          l = mkClamp(mid * 0.75f + side * 1.95f + context->delayR[rIdx] * 0.16f);
+          r = mkClamp(mid * 0.75f - side * 1.95f + context->delayL[rIdx] * 0.16f);
         } else if (fxMode == MoeKoeFxStereo) {
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkClamp(mid + side * 1.48f);
-          r = mkClamp(mid - side * 1.48f);
+          l = mkClamp(mid + side * 1.65f);
+          r = mkClamp(mid - side * 1.65f);
         } else if (fxMode == MoeKoeFxBass) {
-          l *= 0.78f;
-          r *= 0.78f;
+          l *= 0.76f;
+          r *= 0.76f;
           mkProcessBiquad(&context->bassShelf, &l, &r);
           l = mkClamp(l);
           r = mkClamp(r);
         } else if (fxMode == MoeKoeFxVocal) {
-          l *= 0.86f;
-          r *= 0.86f;
+          l *= 0.85f;
+          r *= 0.85f;
           mkProcessBiquad(&context->vocalPeak, &l, &r);
           l = mkClamp(l);
           r = mkClamp(r);
@@ -252,12 +255,12 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
           int rIdx1 = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           int rIdx2 = (wIdx - d2 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           int rIdx3 = (wIdx - d3 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
-          float wetL = 0.20f * context->delayL[rIdx1] + 0.15f * context->delayR[rIdx2] + 0.10f * context->delayL[rIdx3];
-          float wetR = 0.20f * context->delayR[rIdx1] + 0.15f * context->delayL[rIdx2] + 0.10f * context->delayR[rIdx3];
+          float wetL = 0.22f * context->delayL[rIdx1] + 0.16f * context->delayR[rIdx2] + 0.11f * context->delayL[rIdx3];
+          float wetR = 0.22f * context->delayR[rIdx1] + 0.16f * context->delayL[rIdx2] + 0.11f * context->delayR[rIdx3];
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkClamp((mid * 0.85f + side * 1.3f) + wetL);
-          r = mkClamp((mid * 0.85f - side * 1.3f) + wetR);
+          l = mkClamp((mid * 0.82f + side * 1.35f) + wetL);
+          r = mkClamp((mid * 0.82f - side * 1.35f) + wetR);
         }
 
         left[idx] = l;
@@ -278,7 +281,9 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   console.log("[patch-ios-audio-fx] Patched AudioTapProcessor.m");
 }
 
-// 3. Patch AudioPlayer.swift to skip JS event bridge when only DSP FX is active
+// 3. Patch AudioPlayer.swift:
+//    - Skip JS event bridge when only DSP FX is active
+//    - Retry installTap() in periodic timeObserver if samplingEnabled && !tapInstalled (essential for remote HTTP streams where assetTrack loads asynchronously!)
 const playerSwiftPath = path.join(iosDir, "AudioPlayer.swift");
 let playerSwift = fs.readFileSync(playerSwiftPath, "utf8");
 if (!playerSwift.includes("AudioTapProcessor.currentEffectMode()")) {
@@ -287,7 +292,21 @@ if (!playerSwift.includes("AudioTapProcessor.currentEffectMode()")) {
     "          self.samplingEnabled,\n          AudioTapProcessor.currentEffectMode() == 0 else {"
   );
   fs.writeFileSync(playerSwiftPath, playerSwift, "utf8");
-  console.log("[patch-ios-audio-fx] Patched AudioPlayer.swift");
+  console.log("[patch-ios-audio-fx] Patched AudioPlayer.swift (skip JS emit)");
+}
+if (!playerSwift.includes("retry installTap when tracks become ready")) {
+  playerSwift = playerSwift.replace(
+    "      self.updateStatus(with: [",
+    `      // retry installTap when tracks become ready
+      if (self.samplingEnabled || AudioTapProcessor.currentEffectMode() != 0),
+         self.audioProcessor?.isTapInstalled != true,
+         self.isLoaded {
+        self.installTap()
+      }
+      self.updateStatus(with: [`
+  );
+  fs.writeFileSync(playerSwiftPath, playerSwift, "utf8");
+  console.log("[patch-ios-audio-fx] Patched AudioPlayer.swift (auto-retry installTap)");
 }
 
 // 4. Patch AudioModule.swift to expose setAudioEffectMode

@@ -107,6 +107,9 @@ const progressStore = createStore(INITIAL_PROGRESS_STATE);
 
 let audioPlayer: AudioPlayer | null = null;
 let loadSequence = 0;
+let seekSequence = 0;
+let seekingActive = false;
+let seekingHoldTimer: ReturnType<typeof setTimeout> | null = null;
 let failStreak = 0;
 let advanceTimer: ReturnType<typeof setTimeout> | null = null;
 // 每次“建立新队列”都会自增；后台补齐歌单剩余曲目时靠它判断队列是否已被替换。
@@ -166,18 +169,18 @@ function ensureAudioPlayer(): AudioPlayer {
 function handlePlaybackStatus(status: AudioStatus) {
   const current = progressStore.getState();
   progressStore.setState({
-    positionMs: Math.max(0, Math.round(status.currentTime * 1000)),
+    positionMs: seekingActive ? current.positionMs : Math.max(0, Math.round(status.currentTime * 1000)),
     durationMs: status.duration > 0 ? Math.round(status.duration * 1000) : current.durationMs,
   });
 
   const state = playerStore.getState();
-  const playing = status.playing;
+  const playing = seekingActive ? state.playing : status.playing;
   const buffering = status.isBuffering && !status.playing;
   if (state.playing !== playing || state.buffering !== buffering) {
     playerStore.setState({ playing, buffering });
   }
 
-  if (status.didJustFinish) {
+  if (status.didJustFinish && !seekingActive) {
     handleTrackFinished();
   }
 }
@@ -466,16 +469,50 @@ export const playerActions = {
     void skip(-1);
   },
 
-  seekToMs(positionMs: number) {
-    const { track } = playerStore.getState();
+  async seekToMs(positionMs: number) {
+    const { track, playing } = playerStore.getState();
     if (!track || !audioPlayer) {
       return;
     }
 
+    const player = audioPlayer;
+    const wasPlaying = playing || player.playing;
     const { durationMs } = progressStore.getState();
-    const clamped = Math.max(0, durationMs > 0 ? Math.min(positionMs, durationMs) : positionMs);
+    const maxSeekMs = durationMs > 500 ? durationMs - 400 : durationMs;
+    const clamped = Math.max(0, durationMs > 0 ? Math.min(positionMs, maxSeekMs) : positionMs);
+    const seq = ++seekSequence;
+
+    seekingActive = true;
+    if (seekingHoldTimer) {
+      clearTimeout(seekingHoldTimer);
+    }
+    seekingHoldTimer = setTimeout(() => {
+      if (seq === seekSequence) {
+        seekingActive = false;
+      }
+    }, 1500);
+
     progressStore.setState({ positionMs: clamped });
-    void audioPlayer.seekTo(clamped / 1000);
+
+    try {
+      await player.seekTo(clamped / 1000, 100, 100);
+      if (seq !== seekSequence || audioPlayer !== player) {
+        return;
+      }
+      if (wasPlaying && !player.playing) {
+        player.play();
+      }
+    } catch {
+      // ignore seek errors during track transition
+    } finally {
+      if (seq === seekSequence) {
+        seekingActive = false;
+        if (seekingHoldTimer) {
+          clearTimeout(seekingHoldTimer);
+          seekingHoldTimer = null;
+        }
+      }
+    }
   },
 
   setMode(mode: PlayMode) {

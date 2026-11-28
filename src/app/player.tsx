@@ -122,6 +122,7 @@ function AppleProgressBar() {
   const { positionMs, durationMs } = usePlayerProgress();
   const [dragValue, setDragValue] = useState<number | null>(null);
   const dragValueRef = useRef<number | null>(null);
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownPosition = dragValue ?? positionMs;
   const remainingMs = Math.max(0, durationMs - shownPosition);
 
@@ -129,21 +130,35 @@ function AppleProgressBar() {
     <YStack gap={6}>
       <Slider
         size="$2"
+        paddingVertical={10}
         value={[Math.min(shownPosition, Math.max(durationMs, 1))]}
         max={Math.max(durationMs, 1)}
         step={250}
         disabled={!durationMs}
+        onSlideStart={() => {
+          if (clearTimerRef.current) {
+            clearTimeout(clearTimerRef.current);
+            clearTimerRef.current = null;
+          }
+        }}
         onValueChange={(values) => {
           const next = values[0] ?? 0;
           dragValueRef.current = next;
           setDragValue(next);
         }}
-        onSlideEnd={() => {
-          if (dragValueRef.current !== null) {
-            playerActions.seekToMs(dragValueRef.current);
-          }
+        onSlideEnd={(_event, value) => {
+          const target = dragValueRef.current ?? (typeof value === "number" ? value : null);
           dragValueRef.current = null;
-          setTimeout(() => setDragValue(null), 180);
+          if (target !== null) {
+            void playerActions.seekToMs(target);
+          }
+          if (clearTimerRef.current) {
+            clearTimeout(clearTimerRef.current);
+          }
+          clearTimerRef.current = setTimeout(() => {
+            setDragValue(null);
+            clearTimerRef.current = null;
+          }, 420);
         }}>
         <Slider.Track backgroundColor="rgba(255, 255, 255, 0.22)" height={5} borderRadius={999}>
           <Slider.TrackActive backgroundColor="rgba(255, 255, 255, 0.92)" />

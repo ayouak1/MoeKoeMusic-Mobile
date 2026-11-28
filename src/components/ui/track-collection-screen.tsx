@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { startTransition, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View as RNView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
@@ -12,7 +12,7 @@ import { SongListItem } from '@/components/ui/song-list-item';
 import { TrackActionsSheet } from '@/components/ui/track-actions-sheet';
 import { MaxContentWidth } from '@/constants/theme';
 import { playCollection } from '@/features/player/play-collection';
-import { useHasTrack, usePlayer } from '@/features/player/store';
+import { useActiveTrackHash, useHasTrack } from '@/features/player/store';
 import type { PlayerTrack } from '@/features/player/types';
 import { useIsDark, usePalette } from '@/hooks/use-palette';
 
@@ -62,7 +62,7 @@ export function TrackCollectionScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const hasTrack = useHasTrack();
-  const { track } = usePlayer();
+  const activeHash = useActiveTrackHash();
   const requestIdRef = useRef(0);
 
   const [state, setState] = useState<ScreenState>({
@@ -132,20 +132,50 @@ export function TrackCollectionScreen({
     }
   }
 
-  const activeHash = track?.hash;
   const listBottomInset = insets.bottom + (hasTrack ? MINI_PLAYER_HEIGHT + 26 : 16) + 16;
   const countText = state.total > 0 ? `共 ${state.total} 首` : state.tracks.length ? `${state.tracks.length} 首` : '';
 
   /** 从第 index 首开始播放整个集合：先播已加载的，后台补齐剩余分页到队列。 */
-  function playFrom(index: number) {
-    void playCollection({
-      tracks: state.tracks,
-      startIndex: index,
-      loadedPage: state.page,
-      hasMore: state.hasMore,
-      loadPage,
-    });
-  }
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const playFrom = useCallback(
+    (index: number) => {
+      const current = stateRef.current;
+      if (!current.tracks.length) {
+        return;
+      }
+
+      void playCollection({
+        tracks: current.tracks,
+        startIndex: index,
+        loadedPage: current.page,
+        hasMore: current.hasMore,
+        loadPage,
+      });
+    },
+    [loadPage]
+  );
+
+  const handleMoreTrack = useCallback((item: PlayerTrack) => {
+    setActionTrack(item);
+  }, []);
+
+  const keyExtractor = useCallback((item: PlayerTrack, index: number) => `${item.hash}-${index}`, []);
+
+  const renderTrackItem = useCallback(
+    ({ item, index }: { item: PlayerTrack; index: number }) => (
+      <SongListItem
+        track={item}
+        rank={showRank ? index + 1 : undefined}
+        index={index}
+        active={item.hash === activeHash}
+        onPressIndex={playFrom}
+        onMoreTrack={handleMoreTrack}
+      />
+    ),
+    [showRank, activeHash, playFrom, handleMoreTrack]
+  );
 
   return (
     <View flex={1} backgroundColor={palette.background}>
@@ -156,9 +186,13 @@ export function TrackCollectionScreen({
 
       <FlatList
         data={state.tracks}
-        keyExtractor={(item, index) => `${item.hash}-${index}`}
+        keyExtractor={keyExtractor}
         showsVerticalScrollIndicator={false}
-        onEndReachedThreshold={0.5}
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        updateCellsBatchingPeriod={40}
+        windowSize={9}
+        onEndReachedThreshold={0.4}
         onEndReached={() => {
           if (state.hasMore && !state.loading && !state.loadingMore) {
             void loadTracks(state.page + 1);
@@ -283,15 +317,7 @@ export function TrackCollectionScreen({
             </XStack>
           ) : null
         }
-        renderItem={({ item, index }) => (
-          <SongListItem
-            track={item}
-            rank={showRank ? index + 1 : undefined}
-            active={item.hash === activeHash}
-            onPress={() => playFrom(index)}
-            onMore={() => setActionTrack(item)}
-          />
-        )}
+        renderItem={renderTrackItem}
       />
 
       <TrackActionsSheet

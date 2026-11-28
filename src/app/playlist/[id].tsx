@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { startTransition, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View as RNView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner, Text, View, XStack, YStack } from 'tamagui';
@@ -14,7 +14,7 @@ import { MaxContentWidth } from '@/constants/theme';
 import { libraryActions, useLibrary } from '@/features/library/store';
 import { fetchPlaylistTracks, type PlaylistInfo } from '@/features/playlist/playlist-api';
 import { playCollection } from '@/features/player/play-collection';
-import { useHasTrack, usePlayer } from '@/features/player/store';
+import { useActiveTrackHash, useHasTrack } from '@/features/player/store';
 import { useIsDark, usePalette } from '@/hooks/use-palette';
 import type { PlayerTrack } from '@/features/player/types';
 
@@ -34,7 +34,7 @@ export default function PlaylistScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const hasTrack = useHasTrack();
-  const { track } = usePlayer();
+  const activeHash = useActiveTrackHash();
   const params = useLocalSearchParams<{ id: string; name?: string; cover?: string }>();
   const playlistId = typeof params.id === 'string' ? params.id : '';
   const requestIdRef = useRef(0);
@@ -131,21 +131,48 @@ export default function PlaylistScreen() {
   }
 
   /** 从第 index 首开始播放整个歌单：先播已加载的，后台补齐剩余分页到队列。 */
-  function playFrom(index: number) {
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const playFrom = useCallback((index: number) => {
+    const current = stateRef.current;
+    if (!current.tracks.length) {
+      return;
+    }
+
     void playCollection({
-      tracks: state.tracks,
+      tracks: current.tracks,
       startIndex: index,
-      loadedPage: state.page,
-      hasMore: state.hasMore,
+      loadedPage: current.page,
+      hasMore: current.hasMore,
       loadPage: (page) => fetchPlaylistTracks(playlistId, page),
     });
-  }
+  }, [playlistId]);
+
+  const handleMoreTrack = useCallback((item: PlayerTrack) => {
+    setActionTrack(item);
+  }, []);
+
+  const keyExtractor = useCallback((item: PlayerTrack, index: number) => `${item.hash}-${index}`, []);
+
+  const renderTrackItem = useCallback(
+    ({ item, index }: { item: PlayerTrack; index: number }) => (
+      <SongListItem
+        track={item}
+        rank={index + 1}
+        index={index}
+        active={item.hash === activeHash}
+        onPressIndex={playFrom}
+        onMoreTrack={handleMoreTrack}
+      />
+    ),
+    [activeHash, playFrom, handleMoreTrack]
+  );
 
   const fallbackName = typeof params.name === 'string' ? params.name : '';
   const fallbackCover = typeof params.cover === 'string' && params.cover ? params.cover : null;
   const title = state.info?.name || fallbackName || '歌单';
   const coverUrl = state.info?.coverUrl ?? fallbackCover;
-  const activeHash = track?.hash;
   const listBottomInset = insets.bottom + (hasTrack ? MINI_PLAYER_HEIGHT + 26 : 16) + 16;
 
   return (
@@ -157,9 +184,13 @@ export default function PlaylistScreen() {
 
       <FlatList
         data={state.tracks}
-        keyExtractor={(item, index) => `${item.hash}-${index}`}
+        keyExtractor={keyExtractor}
         showsVerticalScrollIndicator={false}
-        onEndReachedThreshold={0.5}
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        updateCellsBatchingPeriod={40}
+        windowSize={9}
+        onEndReachedThreshold={0.4}
         onEndReached={() => {
           if (state.hasMore && !state.loading && !state.loadingMore) {
             void loadPage(state.page + 1);
@@ -264,15 +295,7 @@ export default function PlaylistScreen() {
             </XStack>
           ) : null
         }
-        renderItem={({ item, index }) => (
-          <SongListItem
-            track={item}
-            rank={index + 1}
-            active={item.hash === activeHash}
-            onPress={() => playFrom(index)}
-            onMore={() => setActionTrack(item)}
-          />
-        )}
+        renderItem={renderTrackItem}
       />
 
       <TrackActionsSheet

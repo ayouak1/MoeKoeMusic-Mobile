@@ -721,6 +721,14 @@ export function usePlayer(): PlayerState {
 }
 
 /** 仅订阅“是否有曲目”这一布尔值，供布局类组件使用，避免高频重渲染。 */
+export function useActiveTrackHash(): string | undefined {
+  return useSyncExternalStore(
+    playerStore.subscribe,
+    () => playerStore.getState().track?.hash,
+    () => undefined
+  );
+}
+
 export function useHasTrack(): boolean {
   return useSyncExternalStore(
     playerStore.subscribe,

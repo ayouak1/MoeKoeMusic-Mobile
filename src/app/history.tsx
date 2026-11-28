@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Alert, FlatList, StyleSheet, View as RNView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, View, XStack, YStack } from "tamagui";
@@ -11,7 +11,7 @@ import { SongListItem } from "@/components/ui/song-list-item";
 import { TrackActionsSheet } from "@/components/ui/track-actions-sheet";
 import { MaxContentWidth } from "@/constants/theme";
 import { playHistoryActions, usePlayHistory } from "@/features/player/history-store";
-import { playerActions, useHasTrack, usePlayer } from "@/features/player/store";
+import { playerActions, useActiveTrackHash, useHasTrack } from "@/features/player/store";
 import type { PlayerTrack } from "@/features/player/types";
 import { useIsDark, usePalette } from "@/hooks/use-palette";
 
@@ -21,11 +21,13 @@ export default function HistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const hasTrack = useHasTrack();
-  const { track: activeTrack } = usePlayer();
+  const activeHash = useActiveTrackHash();
   const history = usePlayHistory();
   const [actionTrack, setActionTrack] = useState<PlayerTrack | null>(null);
 
-  const tracks = history.map((item) => item.track);
+  const tracks = useMemo(() => history.map((item) => item.track), [history]);
+  const handlePlayIndex = useCallback((idx: number) => void playerActions.playTracks(tracks, idx), [tracks]);
+  const handleMoreTrack = useCallback((item: PlayerTrack) => setActionTrack(item), []);
   const bottomInset = Math.max(insets.bottom, 12) + (hasTrack ? MINI_PLAYER_HEIGHT + 24 : 20);
 
   function confirmClear() {
@@ -151,13 +153,17 @@ export default function HistoryScreen() {
             </Text>
           </YStack>
         }
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        windowSize={9}
         renderItem={({ item, index }) => (
           <SongListItem
             track={item}
             rank={index + 1}
-            active={item.hash === activeTrack?.hash}
-            onPress={() => void playerActions.playTracks(tracks, index)}
-            onMore={() => setActionTrack(item)}
+            index={index}
+            active={item.hash === activeHash}
+            onPressIndex={handlePlayIndex}
+            onMoreTrack={handleMoreTrack}
           />
         )}
       />

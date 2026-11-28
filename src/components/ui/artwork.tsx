@@ -1,9 +1,10 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
-import { StyleSheet, View } from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { memo } from "react";
+import { StyleSheet, View } from "react-native";
 
-import { usePalette } from '@/hooks/use-palette';
+import { usePalette } from "@/hooks/use-palette";
 
 type ArtworkProps = {
   uri: string | null | undefined;
@@ -11,13 +12,21 @@ type ArtworkProps = {
   size?: number;
   radius?: number;
   circle?: boolean;
+  /** 列表复用场景关闭淡入动画以提升滑动帧率。 */
+  instant?: boolean;
 };
 
-export function Artwork({ uri, size, radius = 14, circle = false }: ArtworkProps) {
+export const Artwork = memo(function Artwork({
+  uri,
+  size,
+  radius = 14,
+  circle = false,
+  instant = false,
+}: ArtworkProps) {
   const palette = usePalette();
   const frameStyle = size
     ? { width: size, height: size, borderRadius: circle ? size / 2 : radius }
-    : { width: '100%' as const, aspectRatio: 1, borderRadius: radius };
+    : { width: "100%" as const, aspectRatio: 1, borderRadius: radius };
 
   if (!uri) {
     const iconSize = size ? Math.max(16, Math.round(size * 0.38)) : 34;
@@ -34,18 +43,25 @@ export function Artwork({ uri, size, radius = 14, circle = false }: ArtworkProps
 
   return (
     <View style={[styles.frame, frameStyle, { backgroundColor: palette.cardAlt }]}>
-      <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+      <Image
+        source={{ uri }}
+        recyclingKey={uri}
+        cachePolicy="memory-disk"
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={instant ? 0 : 180}
+      />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   frame: {
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   placeholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
 });

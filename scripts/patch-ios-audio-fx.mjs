@@ -424,3 +424,46 @@ if (!moduleSwift.includes('Function("setAudioEffectMode")')) {
   fs.writeFileSync(moduleSwiftPath, moduleSwift, "utf8");
   console.log("[patch-ios-audio-fx] Patched AudioModule.swift (module-level)");
 }
+
+// 5. Patch AudioUtils.swift for precise remote MP3/FLAC seeking
+const utilsSwiftPath = path.join(iosDir, "AudioUtils.swift");
+let utilsSwift = fs.readFileSync(utilsSwiftPath, "utf8");
+if (!utilsSwift.includes("AVURLAssetPreferPreciseDurationAndTimingKey")) {
+  utilsSwift = utilsSwift.replace(
+    `    var options: [String: Any]?
+    if let headers = source.headers {
+      options = ["AVURLAssetHTTPHeaderFieldsKey": headers]
+    }`,
+    `    var options: [String: Any] = [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+    if let headers = source.headers {
+      options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+    }`
+  );
+  fs.writeFileSync(utilsSwiftPath, utilsSwift, "utf8");
+  console.log("[patch-ios-audio-fx] Patched AudioUtils.swift (precise seek timing)");
+}
+
+// 6. Patch AudioPlayer.swift seekTo to preserve playing state across seek
+let playerSeekSwift = fs.readFileSync(playerSwiftPath, "utf8");
+if (!playerSeekSwift.includes("let shouldResumeAfterSeek")) {
+  playerSeekSwift = playerSeekSwift.replace(
+    `    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      ref.seek(to: time, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] _ in`,
+    `    let shouldResumeAfterSeek = self.isPlaying || self.ref.rate > 0
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      ref.seek(to: time, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] finished in`
+  );
+  playerSeekSwift = playerSeekSwift.replace(
+    `      self.updateStatus(with: [
+            "currentTime": self.currentTime
+          ])`,
+    `      if finished && shouldResumeAfterSeek && self.ref.timeControlStatus != .playing {
+        self.play(at: self.effectiveRate)
+      }
+      self.updateStatus(with: [
+            "currentTime": self.currentTime
+          ])`
+  );
+  fs.writeFileSync(playerSwiftPath, playerSeekSwift, "utf8");
+  console.log("[patch-ios-audio-fx] Patched AudioPlayer.swift (preserve playing on seek)");
+}

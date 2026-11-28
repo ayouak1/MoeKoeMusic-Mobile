@@ -21,7 +21,7 @@ if (!header.includes("setEffectMode:")) {
   console.log("[patch-ios-audio-fx] Patched AudioTapProcessor.h");
 }
 
-// 2. Patch AudioTapProcessor.m with Binaural HRTF 8D + 3D + Stereo + EQ + Live DSP
+// 2. Patch AudioTapProcessor.m with crisp Binaural HRTF 8D + 3D + LX-style Crisp Stereo + EQ + Live DSP
 const implPath = path.join(iosDir, "AudioTapProcessor.m");
 let impl = fs.readFileSync(implPath, "utf8");
 if (!impl.includes("setEffectMode:")) {
@@ -59,7 +59,7 @@ static inline float mkClamp(float v) {
 }
 
 static inline float mkSoftLimit(float v) {
-  return tanhf(v * 0.92f);
+  return tanhf(v * 0.90f);
 }
 
 static inline float mkReadFracDelay(const float *buf, int writeIdx, float delaySamples) {
@@ -85,6 +85,21 @@ static void mkSetupLowShelf(MoeKoeBiquad *bq, double sampleRate, double freq, do
   bq->b2 = (float)((A * ((A + 1.0) - (A - 1.0) * cosw0 - sqrtA2Alpha)) / a0);
   bq->a1 = (float)((-2.0 * ((A - 1.0) + (A + 1.0) * cosw0)) / a0);
   bq->a2 = (float)(((A + 1.0) + (A - 1.0) * cosw0 - sqrtA2Alpha) / a0);
+}
+
+static void mkSetupHighShelf(MoeKoeBiquad *bq, double sampleRate, double freq, double gainDb) {
+  double A = pow(10.0, gainDb / 40.0);
+  double w0 = 2.0 * M_PI * freq / sampleRate;
+  double cosw0 = cos(w0);
+  double sinw0 = sin(w0);
+  double alpha = sinw0 / 2.0 * sqrt(2.0);
+  double sqrtA2Alpha = 2.0 * sqrt(A) * alpha;
+  double a0 = (A + 1.0) - (A - 1.0) * cosw0 + sqrtA2Alpha;
+  bq->b0 = (float)((A * ((A + 1.0) + (A - 1.0) * cosw0 + sqrtA2Alpha)) / a0);
+  bq->b1 = (float)((-2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0)) / a0);
+  bq->b2 = (float)((A * ((A + 1.0) + (A - 1.0) * cosw0 - sqrtA2Alpha)) / a0);
+  bq->a1 = (float)((2.0 * ((A - 1.0) - (A + 1.0) * cosw0)) / a0);
+  bq->a2 = (float)(((A + 1.0) - (A - 1.0) * cosw0 - sqrtA2Alpha) / a0);
 }
 
 static void mkSetupPeaking(MoeKoeBiquad *bq, double sampleRate, double freq, double q, double gainDb) {
@@ -144,10 +159,11 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   int itdWriteIdx;
   float headShadowL;
   float headShadowR;
-  float backWarmL;
-  float backWarmR;
+  float revHpPrevL;
+  float revHpPrevR;
   MoeKoeBiquad bassShelf;
   MoeKoeBiquad vocalPeak;
+  MoeKoeBiquad crispAir;
 } AVAudioTapProcessorContext;`
   );
 
@@ -194,12 +210,14 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
   context->itdWriteIdx = 0;
   context->headShadowL = 0.0f;
   context->headShadowR = 0.0f;
-  context->backWarmL = 0.0f;
-  context->backWarmR = 0.0f;
+  context->revHpPrevL = 0.0f;
+  context->revHpPrevR = 0.0f;
   memset(&context->bassShelf, 0, sizeof(MoeKoeBiquad));
   memset(&context->vocalPeak, 0, sizeof(MoeKoeBiquad));
+  memset(&context->crispAir, 0, sizeof(MoeKoeBiquad));
   mkSetupLowShelf(&context->bassShelf, sr, 135.0, 7.0);
   mkSetupPeaking(&context->vocalPeak, sr, 2400.0, 0.9, 5.5);
+  mkSetupHighShelf(&context->crispAir, sr, 6000.0, 3.0);
 }`
   );
 
@@ -226,11 +244,11 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
 
     if (left && right) {
       double sr = context->sampleRate > 0 ? context->sampleRate : 44100.0;
-      double phaseInc = (2.0 * M_PI / 9.5) / sr;
-      float maxItdSamples = (float)(sr * 0.00065);
-      int d1 = (int)(sr * 0.019);
-      int d2 = (int)(sr * 0.047);
-      int d3 = (int)(sr * 0.093);
+      double phaseInc = (2.0 * M_PI / 9.0) / sr;
+      float maxItdSamples = (float)(sr * 0.00060);
+      int d1 = (int)(sr * 0.023);
+      int d2 = (int)(sr * 0.053);
+      int d3 = (int)(sr * 0.097);
       if (d1 >= MOEK_REVERB_BUF_SIZE) d1 = MOEK_REVERB_BUF_SIZE - 1;
       if (d2 >= MOEK_REVERB_BUF_SIZE) d2 = MOEK_REVERB_BUF_SIZE - 1;
       if (d3 >= MOEK_REVERB_BUF_SIZE) d3 = MOEK_REVERB_BUF_SIZE - 1;
@@ -240,9 +258,15 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
         float l = left[idx];
         float r = right[idx];
 
+        // 1-pole high-pass (~450Hz) for reverb buffer so spatial reflections stay airy, never muddy
+        float hpL = l - context->revHpPrevL;
+        context->revHpPrevL += 0.06f * hpL;
+        float hpR = r - context->revHpPrevR;
+        context->revHpPrevR += 0.06f * hpR;
+
         int wIdx = context->delayWriteIdx;
-        context->delayL[wIdx] = l;
-        context->delayR[wIdx] = r;
+        context->delayL[wIdx] = hpL;
+        context->delayR[wIdx] = hpR;
 
         if (fxMode == MoeKoeFx8D) {
           float theta = (float)context->panPhase;
@@ -252,61 +276,65 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
           float azSin = sinf(theta);
           float azCos = cosf(theta);
 
-          // 1. 等功率 Mid/Side 编码，保持立体声细节的同时聚焦旋转声像
           float mid = (l + r) * 0.7071f;
           float side = (l - r) * 0.7071f;
-          float srcL = mid + side * 0.45f;
-          float srcR = mid - side * 0.45f;
+          float srcL = mid + side * 0.55f;
+          float srcR = mid - side * 0.55f;
 
           int iw = context->itdWriteIdx;
           context->itdBufL[iw] = srcL;
           context->itdBufR[iw] = srcR;
 
-          // 2. 双耳 ITD（耳间时间差，最大 ±0.65ms 亚毫秒线性插值延迟）
           float itdL = azSin > 0.0f ? azSin * maxItdSamples : 0.0f;
           float itdR = azSin < 0.0f ? (-azSin) * maxItdSamples : 0.0f;
           float earL = mkReadFracDelay(context->itdBufL, iw, itdL);
           float earR = mkReadFracDelay(context->itdBufR, iw, itdR);
           context->itdWriteIdx = (iw + 1) & (MOEK_ITD_BUF_SIZE - 1);
 
-          // 3. ILD + 头影效应动态高频衰减（远耳高频滚降）
           float angle = (azSin + 1.0f) * (float)(M_PI * 0.25);
-          float gL = 0.28f + 0.84f * cosf(angle);
-          float gR = 0.28f + 0.84f * sinf(angle);
-          float alphaL = 0.92f - 0.62f * fmaxf(0.0f, azSin);
-          float alphaR = 0.92f - 0.62f * fmaxf(0.0f, -azSin);
+          float gL = 0.26f + 0.86f * cosf(angle);
+          float gR = 0.26f + 0.86f * sinf(angle);
+
+          // Keep near ear full-brightness (0.96), far ear gentle head-shadow (0.50) so it never sounds muffled
+          float alphaL = 0.96f - 0.46f * fmaxf(0.0f, azSin);
+          float alphaR = 0.96f - 0.46f * fmaxf(0.0f, -azSin);
           context->headShadowL += alphaL * (earL - context->headShadowL);
           context->headShadowR += alphaR * (earR - context->headShadowR);
-          float binL = context->headShadowL * gL;
-          float binR = context->headShadowR * gR;
 
-          // 4. 前后方耳廓深度感（声源绕到脑后时轻微柔化高频并加大空间反射）
           float backAmt = fmaxf(0.0f, -azCos);
-          context->backWarmL += 0.35f * (binL - context->backWarmL);
-          context->backWarmR += 0.35f * (binR - context->backWarmR);
-          binL = binL * (1.0f - 0.28f * backAmt) + context->backWarmL * (0.28f * backAmt);
-          binR = binR * (1.0f - 0.28f * backAmt) + context->backWarmR * (0.28f * backAmt);
-
-          // 5. 早期反射 + 空间混响 + 软限幅防削波
           int rIdx1 = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
           int rIdx2 = (wIdx - d2 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
-          int rIdx3 = (wIdx - d3 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
-          float revGain = 0.14f + 0.10f * backAmt;
-          float wetL = revGain * (0.50f * context->delayR[rIdx1] + 0.32f * context->delayL[rIdx2] + 0.18f * context->delayR[rIdx3]);
-          float wetR = revGain * (0.50f * context->delayL[rIdx1] + 0.32f * context->delayR[rIdx2] + 0.18f * context->delayL[rIdx3]);
-          l = mkSoftLimit(binL * 0.86f + wetL);
-          r = mkSoftLimit(binR * 0.86f + wetR);
+          float revGain = 0.11f + 0.09f * backAmt;
+          float wetL = revGain * (0.6f * context->delayR[rIdx1] + 0.4f * context->delayL[rIdx2]);
+          float wetR = revGain * (0.6f * context->delayL[rIdx1] + 0.4f * context->delayR[rIdx2]);
+
+          l = context->headShadowL * gL * 0.90f + wetL;
+          r = context->headShadowR * gR * 0.90f + wetR;
+          mkProcessBiquad(&context->crispAir, &l, &r);
+          l = mkSoftLimit(l);
+          r = mkSoftLimit(r);
         } else if (fxMode == MoeKoeFx3D) {
-          int rIdx = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
+          // Crisp 3D spatializer: keep full center vocal punch, widen side, add airy high-passed hall reflection + sparkle
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkSoftLimit(mid * 0.75f + side * 1.95f + context->delayR[rIdx] * 0.16f);
-          r = mkSoftLimit(mid * 0.75f - side * 1.95f + context->delayL[rIdx] * 0.16f);
+          int rIdx1 = (wIdx - d1 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
+          int rIdx2 = (wIdx - d2 + MOEK_REVERB_BUF_SIZE) & (MOEK_REVERB_BUF_SIZE - 1);
+          float airL = 0.10f * context->delayR[rIdx1] + 0.06f * context->delayL[rIdx2];
+          float airR = 0.10f * context->delayL[rIdx1] + 0.06f * context->delayR[rIdx2];
+          l = mid * 0.96f + side * 1.75f + airL;
+          r = mid * 0.96f - side * 1.75f + airR;
+          mkProcessBiquad(&context->crispAir, &l, &r);
+          l = mkSoftLimit(l * 0.88f);
+          r = mkSoftLimit(r * 0.88f);
         } else if (fxMode == MoeKoeFxStereo) {
+          // LX-style crisp Stereo: zero delay/comb-filter, clean M/S widening + 6kHz crisp air boost
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkSoftLimit(mid + side * 1.65f);
-          r = mkSoftLimit(mid - side * 1.65f);
+          l = mid + side * 1.55f;
+          r = mid - side * 1.55f;
+          mkProcessBiquad(&context->crispAir, &l, &r);
+          l = mkSoftLimit(l * 0.88f);
+          r = mkSoftLimit(r * 0.88f);
         } else if (fxMode == MoeKoeFxBass) {
           l *= 0.76f;
           r *= 0.76f;
@@ -327,8 +355,8 @@ static inline void mkProcessBiquad(MoeKoeBiquad *bq, float *l, float *r) {
           float wetR = 0.22f * context->delayR[rIdx1] + 0.16f * context->delayL[rIdx2] + 0.11f * context->delayR[rIdx3];
           float mid = (l + r) * 0.5f;
           float side = (l - r) * 0.5f;
-          l = mkSoftLimit((mid * 0.82f + side * 1.35f) + wetL);
-          r = mkSoftLimit((mid * 0.82f - side * 1.35f) + wetR);
+          l = mkSoftLimit((mid * 0.88f + side * 1.35f) + wetL);
+          r = mkSoftLimit((mid * 0.88f - side * 1.35f) + wetR);
         }
 
         left[idx] = l;
@@ -380,7 +408,6 @@ if (!playerSwift.includes("retry installTap when tracks become ready")) {
 // 4. Patch AudioModule.swift to expose setAudioEffectMode at module level (before Class(AudioPlayer.self))
 const moduleSwiftPath = path.join(iosDir, "AudioModule.swift");
 let moduleSwift = fs.readFileSync(moduleSwiftPath, "utf8");
-// Remove any old misplaced definition if re-running locally
 moduleSwift = moduleSwift.replace(
   /\n      Function\("setAudioEffectMode"\) \{ \(mode: String\) in\n        AudioTapProcessor\.setEffectMode\(mode\)\n      \}\n/g,
   "\n"

@@ -110,6 +110,7 @@ let loadSequence = 0;
 let seekSequence = 0;
 let seekingActive = false;
 let seekingHoldTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSeekAt = 0;
 let failStreak = 0;
 let advanceTimer: ReturnType<typeof setTimeout> | null = null;
 // 每次“建立新队列”都会自增；后台补齐歌单剩余曲目时靠它判断队列是否已被替换。
@@ -180,7 +181,7 @@ function handlePlaybackStatus(status: AudioStatus) {
     playerStore.setState({ playing, buffering });
   }
 
-  if (status.didJustFinish && !seekingActive) {
+  if (status.didJustFinish && !seekingActive && Date.now() - lastSeekAt > 2000) {
     handleTrackFinished();
   }
 }
@@ -481,6 +482,7 @@ export const playerActions = {
     const maxSeekMs = durationMs > 500 ? durationMs - 400 : durationMs;
     const clamped = Math.max(0, durationMs > 0 ? Math.min(positionMs, maxSeekMs) : positionMs);
     const seq = ++seekSequence;
+    lastSeekAt = Date.now();
 
     seekingActive = true;
     if (seekingHoldTimer) {
@@ -495,7 +497,7 @@ export const playerActions = {
     progressStore.setState({ positionMs: clamped });
 
     try {
-      await player.seekTo(clamped / 1000, 100, 100);
+      await player.seekTo(clamped / 1000);
       if (seq !== seekSequence || audioPlayer !== player) {
         return;
       }

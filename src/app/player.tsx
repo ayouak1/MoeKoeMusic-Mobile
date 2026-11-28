@@ -130,7 +130,7 @@ function AppleProgressBar() {
     <YStack gap={6}>
       <Slider
         size="$2"
-        paddingVertical={10}
+        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         value={[Math.min(shownPosition, Math.max(durationMs, 1))]}
         max={Math.max(durationMs, 1)}
         step={250}
